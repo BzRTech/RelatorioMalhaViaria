@@ -66,6 +66,12 @@ CORES_PRINCIPAIS = [
 LOGO_PADRAO = "logomarca-eixo-cores-2.png"
 PASTA_GRAFICOS = "graficos"  # subpasta dentro da pasta de saída
 
+# Texto que identifica uma via SEM DENOMINAÇÃO no campo RUA
+PADRAO_SEM_NOME = "SEM NOME"
+
+# Valores tratados como "vazio" / não informado
+VAZIO = "NÃO INFORMADO"
+
 
 # ==========================================================================
 # FORMATAÇÃO BRASILEIRA
@@ -142,6 +148,61 @@ def ler_csv(caminho):
         raise RuntimeError(f"Não foi possível ler o CSV '{caminho}': {ultimo_erro or e}")
 
 
+def ler_shapefile(caminho_shp):
+    """Lê a tabela de atributos de um shapefile (.shp/.dbf) como DataFrame."""
+    try:
+        import shapefile  # pyshp
+    except ImportError:
+        raise RuntimeError(
+            "Para ler shapefiles instale a biblioteca pyshp: pip install pyshp")
+
+    erro = None
+    for enc in ("utf-8", "latin-1"):
+        try:
+            r = shapefile.Reader(caminho_shp, encoding=enc)
+            campos = [f[0] for f in r.fields[1:]]  # ignora DeletionFlag
+            dados = [list(rec) for rec in r.records()]
+            return pd.DataFrame(dados, columns=campos)
+        except Exception as e:  # noqa: BLE001
+            erro = e
+    raise RuntimeError(f"Não foi possível ler o shapefile '{caminho_shp}': {erro}")
+
+
+def carregar_dados(caminho):
+    """
+    Carrega os dados a partir de um CSV, shapefile (.shp), pasta ou .zip.
+    Devolve (DataFrame, lista_de_pastas_temporarias_para_limpar).
+    """
+    temporarios = []
+    caminho_l = caminho.lower()
+
+    # ZIP: extrai para pasta temporária e procura o arquivo de dados
+    if caminho_l.endswith(".zip"):
+        import zipfile
+        import tempfile
+        destino = tempfile.mkdtemp(prefix="relatorio_")
+        temporarios.append(destino)
+        with zipfile.ZipFile(caminho) as z:
+            z.extractall(destino)
+        caminho = destino
+        caminho_l = caminho.lower()
+
+    # PASTA: procura .shp e depois .csv
+    if os.path.isdir(caminho):
+        shps = glob.glob(os.path.join(caminho, "**", "*.shp"), recursive=True)
+        if shps:
+            return ler_shapefile(shps[0]), temporarios
+        csvs = glob.glob(os.path.join(caminho, "**", "*.csv"), recursive=True)
+        if csvs:
+            return ler_csv(csvs[0]), temporarios
+        raise RuntimeError(f"Nenhum .shp ou .csv encontrado em: {caminho}")
+
+    # ARQUIVO direto
+    if caminho_l.endswith(".shp"):
+        return ler_shapefile(caminho), temporarios
+    return ler_csv(caminho), temporarios
+
+
 def converter_para_float(valor):
     """Converte valores numéricos em formato BR/US para float."""
     if pd.isna(valor) or valor == "NÃO INFORMADO":
@@ -157,15 +218,27 @@ def converter_para_float(valor):
 
 
 def preparar_dados(df, col_map):
-    """Limpa nulos e converte a coluna de comprimento para float."""
+    """Limpa nulos, normaliza vazios e converte a coluna de comprimento."""
     df = df.copy()
-    for col in col_map.values():
-        if col in df.columns and col != col_map.get("comprimento"):
-            df[col] = df[col].fillna("NÃO INFORMADO")
-
     comp = col_map.get("comprimento")
+    for col in col_map.values():
+        if col in df.columns and col != comp:
+            # nulos e strings vazias/espacos -> NÃO INFORMADO
+            serie = df[col].fillna(VAZIO).astype(str).str.strip()
+            df[col] = serie.replace({"": VAZIO, "nan": VAZIO, "None": VAZIO})
+
     if comp and comp in df.columns:
         df[comp] = df[comp].apply(converter_para_float)
+
+    # Marca vias sem denominação (texto "SEM NOME" no campo RUA, ou vazio)
+    via = col_map.get("via")
+    if via and via in df.columns:
+        nomes = df[via].astype(str).str.upper().str.strip()
+        df["_SEM_NOME"] = (
+            nomes.str.contains(PADRAO_SEM_NOME, na=False)
+            | (nomes == VAZIO.upper())
+            | (nomes == "")
+        )
     return df
 
 
@@ -236,6 +309,103 @@ def distribuicao_percentual(df, col_map, coluna_grupo):
     return tabela
 
 
+def analise_denominacao_geral(df, col_map):
+    """
+    Resumo geral de vias COM nome x SEM denominação, em porcentagem.
+    Colunas (somam 100%): % das Vias, % dos Trechos, % da Extensão.
+    """
+    if "_SEM_NOME" not in df.columns:
+        return None
+    comp = col_map.get("comprimento")
+    via = col_map.get("via")
+
+    # Vias únicas (trecho = 1)
+    df_t1 = filtrar_trecho_1(df, col_map)
+    total_vias = df_t1[via].nunique() if via else len(df_t1)
+    vias_sem = df_t1.loc[df_t1["_SEM_NOME"], via].nunique() if via else df_t1["_SEM_NOME"].sum()
+
+    total_tre = len(df)
+    tre_sem = int(df["_SEM_NOME"].sum())
+
+    if comp and comp in df.columns:
+        ext_total = df[comp].sum() or 1
+        ext_sem = df.loc[df["_SEM_NOME"], comp].sum()
+    else:
+        ext_total, ext_sem = total_tre, tre_sem
+
+    def linha(v_vias, v_tre, v_ext):
+        return {
+            "% das Vias": round((v_vias / (total_vias or 1)) * 100, 2),
+            "% dos Trechos": round((v_tre / (total_tre or 1)) * 100, 2),
+            "% da Extensão": round((v_ext / (ext_total or 1)) * 100, 2),
+        }
+
+    tab = pd.DataFrame({
+        "Com denominação": linha(total_vias - vias_sem, total_tre - tre_sem, ext_total - ext_sem),
+        "Sem denominação": linha(vias_sem, tre_sem, ext_sem),
+    }).T
+    tab.index.name = "Categoria"
+    tab.loc["TOTAL"] = {c: 100.0 for c in tab.columns}
+    return tab
+
+
+def ranking_bairro_sem_nome(df, col_map, top=10):
+    """Bairros com mais logradouros SEM denominação (quantidade e %)."""
+    bairro = col_map.get("bairro")
+    via = col_map.get("via")
+    if not (bairro and bairro in df.columns and "_SEM_NOME" in df.columns):
+        return None
+
+    df_t1 = filtrar_trecho_1(df, col_map)
+    g = df_t1.groupby(bairro)
+    if via:
+        total = g[via].nunique()
+        sem = df_t1[df_t1["_SEM_NOME"]].groupby(bairro)[via].nunique()
+    else:
+        total = g.size()
+        sem = df_t1[df_t1["_SEM_NOME"]].groupby(bairro).size()
+    sem = sem.reindex(total.index, fill_value=0)
+
+    tab = pd.DataFrame({
+        "Logradouros sem denominação": sem.astype(int),
+        "Total de vias": total.astype(int),
+    })
+    tab["% do bairro sem nome"] = (tab["Logradouros sem denominação"] /
+                                   tab["Total de vias"].replace(0, np.nan) * 100).round(2)
+    tab = tab.sort_values("Logradouros sem denominação", ascending=False)
+    return tab.head(top)
+
+
+def ranking_bairro_nominadas(df, col_map, top=10):
+    """Bairros com mais vias COM nome (para o ranking estilo Centro/Juliana Pires)."""
+    bairro = col_map.get("bairro")
+    via = col_map.get("via")
+    if not (bairro and bairro in df.columns and "_SEM_NOME" in df.columns and via):
+        return None
+    df_t1 = filtrar_trecho_1(df, col_map)
+    nominadas = df_t1[~df_t1["_SEM_NOME"]].groupby(bairro)[via].nunique()
+    tab = pd.DataFrame({"Vias nominadas": nominadas.astype(int)})
+    tab = tab[tab["Vias nominadas"] > 0].sort_values("Vias nominadas", ascending=False)
+    return tab.head(top)
+
+
+def sem_nome_por_categoria(df, col_map, campo):
+    """% e quantidade de trechos SEM denominação dentro de cada setor/pavimentação."""
+    coluna = col_map.get(campo)
+    if not (coluna and coluna in df.columns and "_SEM_NOME" in df.columns):
+        return None
+    g = df.groupby(coluna)
+    total = g.size()
+    sem = df[df["_SEM_NOME"]].groupby(coluna).size().reindex(total.index, fill_value=0)
+    tab = pd.DataFrame({
+        "Trechos sem denominação": sem.astype(int),
+        "Total de trechos": total.astype(int),
+    })
+    tab["% sem denominação"] = (tab["Trechos sem denominação"] /
+                                tab["Total de trechos"].replace(0, np.nan) * 100).round(2)
+    return tab.sort_values("% sem denominação", ascending=False)
+
+
 def gerar_relatorio(df, col_map, nome_municipio):
     """Calcula todos os blocos do relatório e devolve um dicionário."""
     rel = {
@@ -275,6 +445,29 @@ def gerar_relatorio(df, col_map, nome_municipio):
         })
         top_df.index = range(1, len(top_df) + 1)
         rel["top_vias"] = top_df
+
+    # ----- Novos insights: denominação das vias -----
+    if "_SEM_NOME" in df.columns:
+        rel["denominacao_geral"] = analise_denominacao_geral(df, col_map)
+        # % geral sem denominação (extensão) para o resumo
+        geral = rel["denominacao_geral"]
+        if geral is not None and "Sem denominação" in geral.index:
+            rel["pct_sem_nome_ext"] = geral.loc["Sem denominação", "% da Extensão"]
+            rel["pct_sem_nome_vias"] = geral.loc["Sem denominação", "% das Vias"]
+
+        r_sem = ranking_bairro_sem_nome(df, col_map, top=10)
+        if r_sem is not None and not r_sem.empty:
+            rel["ranking_bairro_sem_nome"] = r_sem
+        r_nom = ranking_bairro_nominadas(df, col_map, top=10)
+        if r_nom is not None and not r_nom.empty:
+            rel["ranking_bairro_nominadas"] = r_nom
+
+        sn_setor = sem_nome_por_categoria(df, col_map, "setor")
+        if sn_setor is not None and not sn_setor.empty:
+            rel["sem_nome_por_setor"] = sn_setor
+        sn_pav = sem_nome_por_categoria(df, col_map, "pavimentacao")
+        if sn_pav is not None and not sn_pav.empty:
+            rel["sem_nome_por_pavimentacao"] = sn_pav
 
     return rel
 
@@ -459,6 +652,81 @@ def grafico_heatmap_pct(df, col_map, linha, coluna, titulo, nome_arquivo, pasta)
     return destino
 
 
+def grafico_denominacao(tab_geral, nome_arquivo, pasta):
+    """Pizza COM nome x SEM denominação (% da extensão)."""
+    if tab_geral is None or "% da Extensão" not in tab_geral.columns:
+        return None
+    dados = tab_geral.drop(index="TOTAL", errors="ignore")["% da Extensão"]
+    if dados.empty:
+        return None
+    cores = ["#388E3C", "#D32F2F"][:len(dados)]
+    fig, ax = plt.subplots(figsize=(8, 7))
+    fig.patch.set_facecolor("white")
+    wedges, _t, autotexts = ax.pie(
+        dados.values, labels=dados.index.astype(str),
+        autopct=lambda pct: formatar_pct(pct, 1), colors=cores, startangle=90,
+        textprops={"fontweight": "bold", "fontsize": 11})
+    ax.set_title("Denominação das Vias (% da extensão)", fontsize=14,
+                 fontweight="bold", color="#2C2C2C")
+    for at in autotexts:
+        at.set_color("white")
+        at.set_fontweight("bold")
+    plt.tight_layout()
+    destino = os.path.join(pasta, nome_arquivo)
+    plt.savefig(destino, dpi=300, bbox_inches="tight", facecolor="white")
+    plt.close()
+    return destino
+
+
+def grafico_ranking_qtd(tab, coluna_valor, titulo, xlabel, nome_arquivo, pasta):
+    """Barras horizontais de quantidade (rankings de bairros)."""
+    if tab is None or tab.empty:
+        return None
+    dados = tab[coluna_valor].sort_values(ascending=True)
+    n = len(dados)
+    cores = (CORES_PRINCIPAIS * (n // len(CORES_PRINCIPAIS) + 1))[:n]
+    fig, ax = plt.subplots(figsize=(13, max(5, n * 0.5)))
+    fig.patch.set_facecolor("white")
+    bars = ax.barh(dados.index.astype(str), dados.values, color=cores)
+    ax.set_xlabel(xlabel, fontsize=12, fontweight="bold")
+    ax.set_title(titulo, fontsize=14, fontweight="bold", color="#2C2C2C")
+    ax.grid(axis="x", alpha=0.3, color="#9E9E9E")
+    ax.set_facecolor("#FAFAFA")
+    ax.set_xlim(0, max(dados.values) * 1.15 if n else 1)
+    ax.bar_label(bars, padding=4, labels=[formatar_inteiro_br(v) for v in dados.values],
+                 fontweight="bold", fontsize=10, color="#2C2C2C")
+    plt.tight_layout()
+    destino = os.path.join(pasta, nome_arquivo)
+    plt.savefig(destino, dpi=300, bbox_inches="tight", facecolor="white")
+    plt.close()
+    return destino
+
+
+def grafico_sem_nome_pct(tab, titulo, nome_arquivo, pasta):
+    """Barras de % sem denominação por categoria (setor/pavimentação)."""
+    if tab is None or tab.empty:
+        return None
+    dados = tab["% sem denominação"].sort_values(ascending=True)
+    cores = [get_cor_pavimentacao(i) for i in dados.index]
+    if all(c == "#9E9E9E" for c in cores):
+        cores = (CORES_PRINCIPAIS * (len(dados) // len(CORES_PRINCIPAIS) + 1))[:len(dados)]
+    fig, ax = plt.subplots(figsize=(13, max(5, len(dados) * 0.5)))
+    fig.patch.set_facecolor("white")
+    bars = ax.barh(dados.index.astype(str), dados.values, color=cores)
+    ax.set_xlabel("Trechos sem denominação (%)", fontsize=12, fontweight="bold")
+    ax.set_title(titulo, fontsize=14, fontweight="bold", color="#2C2C2C")
+    ax.grid(axis="x", alpha=0.3, color="#9E9E9E")
+    ax.set_facecolor("#FAFAFA")
+    ax.set_xlim(0, max(dados.values) * 1.18 if len(dados) else 1)
+    ax.bar_label(bars, padding=4, labels=[formatar_pct(v, 1) for v in dados.values],
+                 fontweight="bold", fontsize=10, color="#2C2C2C")
+    plt.tight_layout()
+    destino = os.path.join(pasta, nome_arquivo)
+    plt.savefig(destino, dpi=300, bbox_inches="tight", facecolor="white")
+    plt.close()
+    return destino
+
+
 def gerar_graficos(df, rel, col_map, pasta_graficos):
     """Gera todos os gráficos individuais e devolve a lista de arquivos."""
     os.makedirs(pasta_graficos, exist_ok=True)
@@ -503,6 +771,37 @@ def gerar_graficos(df, rel, col_map, pasta_graficos):
                             "fig_06_heatmap_setor_pavimentacao.png", pasta_graficos)
     if f:
         gerados.append(f)
+
+    # ----- Gráficos dos novos insights (denominação) -----
+    if "denominacao_geral" in rel:
+        f = grafico_denominacao(rel["denominacao_geral"],
+                                "fig_07_denominacao.png", pasta_graficos)
+        if f:
+            gerados.append(f)
+
+    if "ranking_bairro_sem_nome" in rel:
+        f = grafico_ranking_qtd(
+            rel["ranking_bairro_sem_nome"], "Logradouros sem denominação",
+            "Bairros com mais logradouros sem denominação",
+            "Logradouros sem denominação (qtd)",
+            "fig_08_bairros_sem_denominacao.png", pasta_graficos)
+        if f:
+            gerados.append(f)
+
+    if "sem_nome_por_pavimentacao" in rel:
+        f = grafico_sem_nome_pct(
+            rel["sem_nome_por_pavimentacao"],
+            "Sem denominação por Tipo de Pavimentação",
+            "fig_09_sem_nome_pavimentacao.png", pasta_graficos)
+        if f:
+            gerados.append(f)
+
+    if "sem_nome_por_setor" in rel:
+        f = grafico_sem_nome_pct(
+            rel["sem_nome_por_setor"], "Sem denominação por Setor",
+            "fig_10_sem_nome_setor.png", pasta_graficos)
+        if f:
+            gerados.append(f)
 
     # Treemap interativo (opcional, requer plotly)
     if col_map.get("setor") and col_map.get("bairro") and col_map.get("comprimento"):
@@ -574,6 +873,32 @@ def exportar_excel(df, rel, col_map, caminho):
             top = rel["top_vias"].copy()
             top["% da Extensão"] = top["% da Extensão"].apply(lambda v: formatar_pct(v, 2))
             top.to_excel(writer, sheet_name="Top 10 Vias (%)", index=False)
+
+        # ----- Novos insights: denominação -----
+        if "denominacao_geral" in rel:
+            g = rel["denominacao_geral"].copy()
+            for c in g.columns:
+                g[c] = g[c].apply(lambda v: formatar_pct(v, 2))
+            g.to_excel(writer, sheet_name="Denominação (%)")
+
+        if "ranking_bairro_nominadas" in rel:
+            rel["ranking_bairro_nominadas"].to_excel(
+                writer, sheet_name="Bairros + nominadas")
+
+        if "ranking_bairro_sem_nome" in rel:
+            t = rel["ranking_bairro_sem_nome"].copy()
+            t["% do bairro sem nome"] = t["% do bairro sem nome"].apply(lambda v: formatar_pct(v, 2))
+            t.to_excel(writer, sheet_name="Bairros sem denominação"[:31])
+
+        if "sem_nome_por_setor" in rel:
+            t = rel["sem_nome_por_setor"].copy()
+            t["% sem denominação"] = t["% sem denominação"].apply(lambda v: formatar_pct(v, 2))
+            t.to_excel(writer, sheet_name="Sem nome p_ setor")
+
+        if "sem_nome_por_pavimentacao" in rel:
+            t = rel["sem_nome_por_pavimentacao"].copy()
+            t["% sem denominação"] = t["% sem denominação"].apply(lambda v: formatar_pct(v, 2))
+            t.to_excel(writer, sheet_name="Sem nome p_ pavim")
 
 
 # ==========================================================================
@@ -669,6 +994,11 @@ def exportar_pdf(rel, graficos, caminho, logo_path=None):
             resumo_rows.append(("Total de Trechos", formatar_inteiro_br(rel["total_trechos"])))
         if "total_km" in rel:
             resumo_rows.append(("Extensão Total (km)", formatar_numero_br(rel["total_km"], 3)))
+        if "pct_sem_nome_vias" in rel:
+            resumo_rows.append(("Vias sem denominação (% das vias)",
+                                formatar_pct(rel["pct_sem_nome_vias"], 1)))
+            resumo_rows.append(("Vias sem denominação (% da extensão)",
+                                formatar_pct(rel.get("pct_sem_nome_ext", 0), 1)))
         df_resumo = pd.DataFrame(resumo_rows, columns=["Indicador", "Valor"])
         _pagina_tabela(pdf, "QUADRO RESUMO", df_resumo, municipio)
 
@@ -700,6 +1030,37 @@ def exportar_pdf(rel, graficos, caminho, logo_path=None):
             top = top.reset_index().rename(columns={"index": "#"})
             _pagina_tabela(pdf, "TOP 10 VIAS MAIS LONGAS (% da malha)", top, municipio)
 
+        # ----- Novos insights: denominação -----
+        if "denominacao_geral" in rel:
+            g = rel["denominacao_geral"].copy()
+            for c in g.columns:
+                g[c] = g[c].apply(lambda v: formatar_pct(v, 2))
+            _pagina_tabela(pdf, "DENOMINAÇÃO DAS VIAS (%)", g.reset_index(), municipio,
+                           "Vias com nome x sem denominação (texto 'SEM NOME' no logradouro)")
+
+        if "ranking_bairro_sem_nome" in rel:
+            t = rel["ranking_bairro_sem_nome"].copy()
+            t["% do bairro sem nome"] = t["% do bairro sem nome"].apply(lambda v: formatar_pct(v, 2))
+            t.insert(0, "Ranking", [f"{i}." for i in range(1, len(t) + 1)])
+            _pagina_tabela(pdf, "BAIRROS COM MAIS LOGRADOUROS SEM DENOMINAÇÃO",
+                           t.reset_index(), municipio)
+
+        if "ranking_bairro_nominadas" in rel:
+            t = rel["ranking_bairro_nominadas"].copy()
+            t.insert(0, "Ranking", [f"{i}." for i in range(1, len(t) + 1)])
+            _pagina_tabela(pdf, "BAIRROS COM MAIS VIAS NOMINADAS",
+                           t.reset_index(), municipio)
+
+        if "sem_nome_por_setor" in rel:
+            t = rel["sem_nome_por_setor"].copy()
+            t["% sem denominação"] = t["% sem denominação"].apply(lambda v: formatar_pct(v, 2))
+            _pagina_tabela(pdf, "SEM DENOMINAÇÃO POR SETOR", t.reset_index(), municipio)
+
+        if "sem_nome_por_pavimentacao" in rel:
+            t = rel["sem_nome_por_pavimentacao"].copy()
+            t["% sem denominação"] = t["% sem denominação"].apply(lambda v: formatar_pct(v, 2))
+            _pagina_tabela(pdf, "SEM DENOMINAÇÃO POR PAVIMENTAÇÃO", t.reset_index(), municipio)
+
         # Gráficos (apenas PNG)
         for img_file in sorted(g for g in graficos if g.lower().endswith(".png")):
             try:
@@ -718,35 +1079,34 @@ def exportar_pdf(rel, graficos, caminho, logo_path=None):
 # UTILIDADES DE ENTRADA
 # ==========================================================================
 
-def descobrir_csv(arg_csv):
-    """Determina o caminho do CSV (argumento, autodetecção ou pergunta)."""
-    if arg_csv:
-        if not os.path.exists(arg_csv):
-            sys.exit(f"❌ Arquivo não encontrado: {arg_csv}")
-        return arg_csv
+def descobrir_entrada(arg):
+    """Determina o arquivo de entrada (.csv/.shp/.zip): argumento, autodetecção ou pergunta."""
+    if arg:
+        if not os.path.exists(arg):
+            sys.exit(f"❌ Arquivo não encontrado: {arg}")
+        return arg
 
-    csvs = sorted(glob.glob("*.csv"))
-    if len(csvs) == 1:
-        print(f"📁 CSV encontrado automaticamente: {csvs[0]}")
-        return csvs[0]
-    if len(csvs) > 1:
-        print("📁 Vários CSVs encontrados:")
-        for i, c in enumerate(csvs, 1):
+    achados = sorted(glob.glob("*.csv") + glob.glob("*.shp") + glob.glob("*.zip"))
+    if len(achados) == 1:
+        print(f"📁 Arquivo encontrado automaticamente: {achados[0]}")
+        return achados[0]
+    if len(achados) > 1:
+        print("📁 Vários arquivos de dados encontrados:")
+        for i, c in enumerate(achados, 1):
             print(f"   {i}. {c}")
         escolha = input("Digite o número do arquivo desejado: ").strip()
         try:
-            return csvs[int(escolha) - 1]
+            return achados[int(escolha) - 1]
         except (ValueError, IndexError):
             sys.exit("❌ Escolha inválida.")
-    # nenhum encontrado
-    caminho = input("Digite o caminho do arquivo CSV: ").strip().strip('"')
+    caminho = input("Digite o caminho do arquivo (CSV ou .shp/.zip): ").strip().strip('"')
     if not os.path.exists(caminho):
         sys.exit(f"❌ Arquivo não encontrado: {caminho}")
     return caminho
 
 
 def validar_colunas(df, col_map):
-    """Remove do mapa as colunas que não existem no CSV e avisa."""
+    """Remove do mapa as colunas que não existem no arquivo e avisa."""
     presentes = {}
     faltando = []
     for chave, nome in col_map.items():
@@ -768,7 +1128,8 @@ def validar_colunas(df, col_map):
 def main():
     parser = argparse.ArgumentParser(
         description="Gera relatório da malha viária (Excel, PDF e gráficos) em porcentagem.")
-    parser.add_argument("csv", nargs="?", help="Caminho do arquivo CSV (opcional).")
+    parser.add_argument("entrada", nargs="?",
+                        help="Caminho do arquivo de dados: CSV, shapefile (.shp) ou .zip (opcional).")
     parser.add_argument("--municipio", help="Nome do município (se omitido, será perguntado).")
     parser.add_argument("--saida", default="relatorio_saida",
                         help="Pasta de saída (padrão: relatorio_saida).")
@@ -780,11 +1141,11 @@ def main():
     print("📊 RELATÓRIO DE MALHA VIÁRIA - VERSÃO LOCAL")
     print("=" * 60)
 
-    caminho_csv = descobrir_csv(args.csv)
+    caminho = descobrir_entrada(args.entrada)
     nome_municipio = args.municipio or input("\n🏙️  Digite o nome do município: ").strip() or "Município"
 
     print("\n🔄 Lendo dados...")
-    df = ler_csv(caminho_csv)
+    df, temporarios = carregar_dados(caminho)
     print(f"   ✓ {formatar_inteiro_br(len(df))} registros, {len(df.columns)} colunas")
 
     col_map = validar_colunas(df, COLUNAS_PADRAO)
@@ -830,11 +1191,18 @@ def main():
         print(f"   • Vias: {formatar_inteiro_br(rel['total_vias'])}")
     if "total_km" in rel:
         print(f"   • Extensão total: {formatar_numero_br(rel['total_km'], 3)} km")
+    if "pct_sem_nome_vias" in rel:
+        print(f"   • Vias sem denominação: {formatar_pct(rel['pct_sem_nome_vias'], 1)} "
+              f"das vias ({formatar_pct(rel.get('pct_sem_nome_ext', 0), 1)} da extensão)")
     print(f"\n📁 Arquivos em: {os.path.abspath(args.saida)}")
     print(f"   • Excel:    {os.path.basename(arquivo_excel)}")
     print(f"   • PDF:      {os.path.basename(arquivo_pdf)}")
     print(f"   • Gráficos: {PASTA_GRAFICOS}/ (e .zip)")
     print("=" * 60)
+
+    # Limpa pastas temporárias (extração de .zip)
+    for tmp in temporarios:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

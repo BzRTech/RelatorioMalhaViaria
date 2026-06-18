@@ -1,7 +1,7 @@
 # Relatório de Malha Viária (versão local)
 
-Gera relatórios da malha viária municipal a partir de um arquivo **CSV** de
-trechos de logradouros, produzindo:
+Gera relatórios da malha viária municipal a partir de um **CSV** ou de um
+**shapefile** (`.shp`) de trechos de logradouros, produzindo:
 
 - 📑 **Excel** (`.xlsx`) com todas as tabelas
 - 📄 **PDF** (capa, quadro resumo, tabelas e gráficos)
@@ -23,6 +23,28 @@ Isso evita confusão para quem lê o relatório. As tabelas mostram:
 
 A extensão total da malha (em km) continua aparecendo apenas no **Quadro Resumo**,
 como número geral de referência.
+
+## Novos insights (denominação das vias)
+
+Além das distribuições, o relatório identifica as **vias sem denominação**
+(logradouros cujo nome contém "SEM NOME" ou está em branco) e traz:
+
+- **Denominação geral** — % de vias com nome x sem denominação (vias, trechos e extensão)
+- **Bairros com mais vias nominadas** — ranking estilo Centro / Juliana Pires
+- **Bairros com mais logradouros sem denominação** — para priorizar ações de nomeação
+- **Sem denominação por setor e por pavimentação** — onde se concentram as vias sem nome
+
+> Exemplo real (Tabira/PE): **67,4% das vias** estão sem denominação, e elas se
+> concentram no **leito natural (60,7%)** — ou seja, ruas ainda não pavimentadas.
+
+## Formatos de entrada aceitos
+
+| Formato            | Como informar                                  |
+|--------------------|------------------------------------------------|
+| CSV                | `arquivo.csv`                                  |
+| Shapefile          | `arquivo.shp` (use os arquivos `.shp/.dbf/...` juntos na mesma pasta) |
+| Pasta              | pasta contendo um `.shp` ou `.csv`             |
+| ZIP                | `.zip` com o shapefile/CSV dentro              |
 
 ## Como usar
 
@@ -64,8 +86,10 @@ pergunta apenas o **nome do município**. Pronto!
 ### Opções avançadas (opcionais)
 
 ```bash
-# Informar o CSV e o município direto
+# Informar o arquivo e o município direto (CSV, .shp ou .zip)
 python relatorio_malha_viaria.py dados.csv --municipio "Minha Cidade"
+python relatorio_malha_viaria.py LOGRADOUROS_OFICIAL.shp --municipio "Tabira"
+python relatorio_malha_viaria.py malha.zip --municipio "Tabira"
 
 # Escolher a pasta de saída e a logomarca
 python relatorio_malha_viaria.py --saida resultados --logo logomarca-eixo-cores-2.png
@@ -87,6 +111,10 @@ relatorio_saida/
     ├── fig_04_pavimentacao.png
     ├── fig_05_setor_status.png
     ├── fig_06_heatmap_setor_pavimentacao.png
+    ├── fig_07_denominacao.png
+    ├── fig_08_bairros_sem_denominacao.png
+    ├── fig_09_sem_nome_pavimentacao.png
+    ├── fig_10_sem_nome_setor.png
     └── treemap_setor_bairro.html
 ```
 
