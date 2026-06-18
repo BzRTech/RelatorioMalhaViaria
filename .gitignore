@@ -1,0 +1,17 @@
+# Saídas geradas pelo relatório
+relatorio_saida/
+*.xlsx
+*.pdf
+graficos/
+graficos_*.zip
+
+# Dados de entrada (não versionar planilhas reais)
+*.csv
+
+# Ambiente Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+.DS_Store
