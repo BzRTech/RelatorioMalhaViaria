@@ -895,6 +895,11 @@ def exportar_excel(df, rel, col_map, caminho):
             add("Vias sem denominação (% das vias)", formatar_pct(rel["pct_sem_nome_vias"], 1))
         if "pct_sem_nome_ext" in rel:
             add("Vias sem denominação (% da extensão)", formatar_pct(rel.get("pct_sem_nome_ext", 0), 1))
+        if "por_pavimentacao" in rel:
+            for tipo, linha in rel["por_pavimentacao"].iterrows():
+                km = linha["_extensao_m"] / 1000
+                add(f"Pavimentação: {tipo}",
+                    f"{formatar_pct(linha['% da Extensão'], 1)} ({formatar_numero_br(km, 2)} km)")
         pd.DataFrame(resumo).to_excel(writer, sheet_name="Resumo", index=False)
 
         # Distribuições (% + total 100%)
@@ -1054,6 +1059,13 @@ def exportar_pdf(rel, graficos, caminho, logo_path=None):
         if "pct_sem_nome_ext" in rel:
             resumo_rows.append(("Vias sem denominação (% da extensão)",
                                 formatar_pct(rel.get("pct_sem_nome_ext", 0), 1)))
+        # Quadro de pavimentação (cada tipo: % da extensão e km)
+        if "por_pavimentacao" in rel:
+            for tipo, linha in rel["por_pavimentacao"].iterrows():
+                km = linha["_extensao_m"] / 1000
+                resumo_rows.append((
+                    f"Pavimentação: {tipo}",
+                    f"{formatar_pct(linha['% da Extensão'], 1)} ({formatar_numero_br(km, 2)} km)"))
         df_resumo = pd.DataFrame(resumo_rows, columns=["Indicador", "Valor"])
         _pagina_tabela(pdf, "QUADRO RESUMO", df_resumo, municipio)
 
