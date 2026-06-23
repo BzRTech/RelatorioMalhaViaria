@@ -168,22 +168,48 @@ def ler_shapefile(caminho_shp):
     raise RuntimeError(f"Não foi possível ler o shapefile '{caminho_shp}': {erro}")
 
 
+def _extrair_zip(caminho, destino):
+    import zipfile
+    with zipfile.ZipFile(caminho) as z:
+        z.extractall(destino)
+
+
+def _extrair_rar(caminho, destino):
+    """Extrai um .rar. Requer a biblioteca rarfile + um extrator (WinRAR/7-Zip/unrar)."""
+    try:
+        import rarfile
+    except ImportError:
+        raise RuntimeError(
+            "Para abrir arquivos .rar instale a biblioteca rarfile (pip install rarfile)\n"
+            "   OU, mais simples: extraia o .rar manualmente (botão direito > Extrair tudo)\n"
+            "   e rode novamente apontando para a pasta ou para o arquivo .shp.")
+    try:
+        with rarfile.RarFile(caminho) as rf:
+            rf.extractall(destino)
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(
+            f"Não foi possível abrir o .rar automaticamente ({e}).\n"
+            "   Solução: extraia o .rar manualmente (botão direito > Extrair tudo) e\n"
+            "   rode novamente apontando para a pasta ou para o arquivo .shp.")
+
+
 def carregar_dados(caminho):
     """
-    Carrega os dados a partir de um CSV, shapefile (.shp), pasta ou .zip.
+    Carrega os dados a partir de um CSV, shapefile (.shp), pasta, .zip ou .rar.
     Devolve (DataFrame, lista_de_pastas_temporarias_para_limpar).
     """
+    import tempfile
     temporarios = []
     caminho_l = caminho.lower()
 
-    # ZIP: extrai para pasta temporária e procura o arquivo de dados
-    if caminho_l.endswith(".zip"):
-        import zipfile
-        import tempfile
+    # Compactados: extrai para pasta temporária e procura o arquivo de dados
+    if caminho_l.endswith(".zip") or caminho_l.endswith(".rar"):
         destino = tempfile.mkdtemp(prefix="relatorio_")
         temporarios.append(destino)
-        with zipfile.ZipFile(caminho) as z:
-            z.extractall(destino)
+        if caminho_l.endswith(".zip"):
+            _extrair_zip(caminho, destino)
+        else:
+            _extrair_rar(caminho, destino)
         caminho = destino
         caminho_l = caminho.lower()
 
@@ -200,7 +226,16 @@ def carregar_dados(caminho):
     # ARQUIVO direto
     if caminho_l.endswith(".shp"):
         return ler_shapefile(caminho), temporarios
-    return ler_csv(caminho), temporarios
+    if caminho_l.endswith(".csv"):
+        return ler_csv(caminho), temporarios
+
+    # Extensão não reconhecida -> erro claro (evita traceback confuso)
+    ext = os.path.splitext(caminho)[1] or "(sem extensão)"
+    raise RuntimeError(
+        f"Formato de arquivo não suportado: {ext}\n"
+        f"   Arquivo: {caminho}\n"
+        "   Use um destes: .csv, .shp (shapefile), uma pasta, .zip ou .rar.\n"
+        "   Dica: se for um shapefile compactado, extraia e aponte para o .shp.")
 
 
 def converter_para_float(valor):
@@ -435,12 +470,14 @@ def gerar_relatorio(df, col_map, nome_municipio):
         if coluna and coluna in df.columns:
             rel[chave] = distribuicao_percentual(df, col_map, coluna)
 
-    # Top 10 vias mais longas (em % da extensão total)
+    # Top 10 vias mais longas (extensão em km + % da extensão total)
     if col_map.get("via") and comp and comp in df.columns:
         total_m = df[comp].sum() or 1
         top = df.groupby(col_map["via"])[comp].sum().sort_values(ascending=False).head(10)
         top_df = pd.DataFrame({
             "Via": top.index,
+            "Extensão (km)": (top.values / 1000).round(3),
+            "Extensão (m)": top.values.round(2),
             "% da Extensão": (top.values / total_m * 100).round(2),
         })
         top_df.index = range(1, len(top_df) + 1)
@@ -473,38 +510,51 @@ def gerar_relatorio(df, col_map, nome_municipio):
 
 
 # ==========================================================================
-# TABELAS "AMIGÁVEIS" (somente % + total = 100%)
+# TABELAS "AMIGÁVEIS" (comprimento em km + % + total)
 # ==========================================================================
 
 def tabela_exibicao(tabela_interna, incluir_vias=True):
     """
-    Converte a tabela interna em uma tabela limpa para exibição,
-    contendo apenas porcentagens e uma linha de TOTAL = 100%.
+    Converte a tabela interna em uma tabela limpa para exibição, com o
+    COMPRIMENTO (km) e as porcentagens lado a lado. A linha de TOTAL traz
+    a extensão total e 100% nas colunas de porcentagem.
+
+    Colunas: [Vias (qtd)], Extensão (km), % da Extensão, Trechos (qtd), % dos Trechos
     """
-    cols = ["% da Extensão", "% dos Trechos"]
-    out = tabela_interna[cols].copy()
+    out = pd.DataFrame(index=tabela_interna.index)
 
     if incluir_vias and "_vias" in tabela_interna.columns:
-        out.insert(0, "Vias (qtd)", tabela_interna["_vias"].astype(int))
+        out["Vias (qtd)"] = tabela_interna["_vias"].astype(int)
 
-    # Linha de total: porcentagens somam 100% por definição (evita
-    # artefatos de arredondamento tipo 100,01%).
+    out["Extensão (km)"] = (tabela_interna["_extensao_m"] / 1000).round(3)
+    out["% da Extensão"] = tabela_interna["% da Extensão"]
+    out["Trechos (qtd)"] = tabela_interna["_trechos"].astype(int)
+    out["% dos Trechos"] = tabela_interna["% dos Trechos"]
+
+    # Linha de total: km somado; porcentagens = 100% por definição
+    # (evita artefatos de arredondamento tipo 100,01%).
     total = {}
     if "Vias (qtd)" in out.columns:
         total["Vias (qtd)"] = int(out["Vias (qtd)"].sum())
+    total["Extensão (km)"] = round(out["Extensão (km)"].sum(), 3)
     total["% da Extensão"] = 100.0
+    total["Trechos (qtd)"] = int(out["Trechos (qtd)"].sum())
     total["% dos Trechos"] = 100.0
     out.loc["TOTAL"] = total
     return out
 
 
 def formatar_tabela_br(tabela):
-    """Aplica formatação BR (porcentagens com vírgula) para exibição/export."""
+    """Aplica formatação BR (km com vírgula, porcentagens, inteiros) para exibição/export."""
     out = tabela.copy()
     for col in out.columns:
         if col.startswith("%"):
             out[col] = out[col].apply(lambda v: formatar_pct(v, 2))
-        elif "qtd" in col.lower() or "Vias" in col:
+        elif "(km)" in col:
+            out[col] = out[col].apply(lambda v: formatar_numero_br(v, 3))
+        elif "(m)" in col:
+            out[col] = out[col].apply(lambda v: formatar_numero_br(v, 2))
+        elif "qtd" in col.lower() or "Vias" in col or "Trechos" in col:
             out[col] = out[col].apply(formatar_inteiro_br)
     return out
 
@@ -535,13 +585,19 @@ def grafico_barra_pizza(tabela, titulo, nome_arquivo, pasta, cores=None):
 
     bars = ax1.barh(dados.index.astype(str), dados.values, color=cores)
     ax1.set_xlabel("Participação na extensão (%)", fontsize=12, fontweight="bold")
-    ax1.set_title(f"{titulo} (% da malha)", fontsize=14, fontweight="bold", color="#2C2C2C")
+    ax1.set_title(f"{titulo} (% e km da malha)", fontsize=14, fontweight="bold", color="#2C2C2C")
     ax1.grid(axis="x", alpha=0.3, color="#9E9E9E")
     ax1.set_facecolor("#FAFAFA")
-    ax1.set_xlim(0, max(dados.values) * 1.18 if len(dados) else 1)
-    ax1.bar_label(bars, padding=4,
-                  labels=[formatar_pct(v, 1) for v in dados.values],
-                  fontweight="bold", fontsize=9)
+    ax1.set_xlim(0, max(dados.values) * 1.30 if len(dados) else 1)
+    # Rótulo com % e comprimento (km)
+    km = (tabela["_extensao_m"] / 1000) if "_extensao_m" in tabela.columns else None
+    rotulos = []
+    for idx, v in dados.items():
+        if km is not None:
+            rotulos.append(f"{formatar_pct(v, 1)}  ({formatar_numero_br(km[idx], 2)} km)")
+        else:
+            rotulos.append(formatar_pct(v, 1))
+    ax1.bar_label(bars, padding=4, labels=rotulos, fontweight="bold", fontsize=9)
 
     dados_pizza = tabela["% da Extensão"].sort_values(ascending=False)
     cores_pizza = cores[::-1] if isinstance(cores, list) else cores
@@ -566,7 +622,7 @@ def grafico_barra_pizza(tabela, titulo, nome_arquivo, pasta, cores=None):
 
 
 def grafico_barra_simples(tabela, titulo, nome_arquivo, pasta, top=15):
-    """Barras horizontais (%) - usado para bairros (Top N)."""
+    """Barras horizontais (% + km) - usado para bairros (Top N)."""
     dados = tabela["% da Extensão"].head(top).sort_values(ascending=True)
     if dados.empty:
         return None
@@ -578,13 +634,18 @@ def grafico_barra_simples(tabela, titulo, nome_arquivo, pasta, top=15):
     fig.patch.set_facecolor("white")
     bars = ax.barh(dados.index.astype(str), dados.values, color=cores)
     ax.set_xlabel("Participação na extensão (%)", fontsize=12, fontweight="bold")
-    ax.set_title(f"{titulo} (% da malha)", fontsize=14, fontweight="bold", color="#2C2C2C")
+    ax.set_title(f"{titulo} (% e km da malha)", fontsize=14, fontweight="bold", color="#2C2C2C")
     ax.grid(axis="x", alpha=0.3, color="#9E9E9E")
     ax.set_facecolor("#FAFAFA")
-    ax.set_xlim(0, max(dados.values) * 1.18)
-    ax.bar_label(bars, padding=4,
-                 labels=[formatar_pct(v, 2) for v in dados.values],
-                 fontweight="bold", fontsize=9, color="#2C2C2C")
+    ax.set_xlim(0, max(dados.values) * 1.30)
+    km = (tabela["_extensao_m"] / 1000) if "_extensao_m" in tabela.columns else None
+    rotulos = []
+    for idx, v in dados.items():
+        if km is not None:
+            rotulos.append(f"{formatar_pct(v, 1)}  ({formatar_numero_br(km[idx], 2)} km)")
+        else:
+            rotulos.append(formatar_pct(v, 2))
+    ax.bar_label(bars, padding=4, labels=rotulos, fontweight="bold", fontsize=9, color="#2C2C2C")
     plt.tight_layout()
     destino = os.path.join(pasta, nome_arquivo)
     plt.savefig(destino, dpi=300, bbox_inches="tight", facecolor="white")
@@ -870,9 +931,8 @@ def exportar_excel(df, rel, col_map, caminho):
                 tab.to_excel(writer, sheet_name=aba[:31])
 
         if "top_vias" in rel:
-            top = rel["top_vias"].copy()
-            top["% da Extensão"] = top["% da Extensão"].apply(lambda v: formatar_pct(v, 2))
-            top.to_excel(writer, sheet_name="Top 10 Vias (%)", index=False)
+            top = formatar_tabela_br(rel["top_vias"])
+            top.to_excel(writer, sheet_name="Top 10 Vias", index=False)
 
         # ----- Novos insights: denominação -----
         if "denominacao_geral" in rel:
@@ -1023,12 +1083,11 @@ def exportar_pdf(rel, graficos, caminho, logo_path=None):
                     tab_fmt = formatar_tabela_br(tab)
                 _pagina_tabela(pdf, titulo, tab_fmt.reset_index(), municipio, rodape)
 
-        # Top 10 vias
+        # Top 10 vias (km + %)
         if "top_vias" in rel:
-            top = rel["top_vias"].copy()
-            top["% da Extensão"] = top["% da Extensão"].apply(lambda v: formatar_pct(v, 2))
-            top = top.reset_index().rename(columns={"index": "#"})
-            _pagina_tabela(pdf, "TOP 10 VIAS MAIS LONGAS (% da malha)", top, municipio)
+            top = rel["top_vias"][["Via", "Extensão (km)", "% da Extensão"]].copy()
+            top = formatar_tabela_br(top).reset_index().rename(columns={"index": "#"})
+            _pagina_tabela(pdf, "TOP 10 VIAS MAIS LONGAS (km e % da malha)", top, municipio)
 
         # ----- Novos insights: denominação -----
         if "denominacao_geral" in rel:
@@ -1086,7 +1145,8 @@ def descobrir_entrada(arg):
             sys.exit(f"❌ Arquivo não encontrado: {arg}")
         return arg
 
-    achados = sorted(glob.glob("*.csv") + glob.glob("*.shp") + glob.glob("*.zip"))
+    achados = sorted(glob.glob("*.csv") + glob.glob("*.shp")
+                     + glob.glob("*.zip") + glob.glob("*.rar"))
     if len(achados) == 1:
         print(f"📁 Arquivo encontrado automaticamente: {achados[0]}")
         return achados[0]
@@ -1099,7 +1159,7 @@ def descobrir_entrada(arg):
             return achados[int(escolha) - 1]
         except (ValueError, IndexError):
             sys.exit("❌ Escolha inválida.")
-    caminho = input("Digite o caminho do arquivo (CSV ou .shp/.zip): ").strip().strip('"')
+    caminho = input("Digite o caminho do arquivo (CSV, .shp, .zip ou .rar): ").strip().strip('"')
     if not os.path.exists(caminho):
         sys.exit(f"❌ Arquivo não encontrado: {caminho}")
     return caminho
@@ -1129,7 +1189,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Gera relatório da malha viária (Excel, PDF e gráficos) em porcentagem.")
     parser.add_argument("entrada", nargs="?",
-                        help="Caminho do arquivo de dados: CSV, shapefile (.shp) ou .zip (opcional).")
+                        help="Caminho do arquivo de dados: CSV, shapefile (.shp), .zip ou .rar (opcional).")
     parser.add_argument("--municipio", help="Nome do município (se omitido, será perguntado).")
     parser.add_argument("--saida", default="relatorio_saida",
                         help="Pasta de saída (padrão: relatorio_saida).")
@@ -1145,7 +1205,10 @@ def main():
     nome_municipio = args.municipio or input("\n🏙️  Digite o nome do município: ").strip() or "Município"
 
     print("\n🔄 Lendo dados...")
-    df, temporarios = carregar_dados(caminho)
+    try:
+        df, temporarios = carregar_dados(caminho)
+    except RuntimeError as e:
+        sys.exit(f"\n❌ {e}")
     print(f"   ✓ {formatar_inteiro_br(len(df))} registros, {len(df.columns)} colunas")
 
     col_map = validar_colunas(df, COLUNAS_PADRAO)

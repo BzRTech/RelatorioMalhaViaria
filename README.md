@@ -15,11 +15,16 @@ Gera relatórios da malha viária municipal a partir de um **CSV** ou de um
 
 Todas as tabelas e gráficos que possuem **totais** são apresentados em
 **porcentagem** (participação na malha viária), com a linha de **TOTAL = 100%**.
-Isso evita confusão para quem lê o relatório. As tabelas mostram:
+Isso evita confusão para quem lê o relatório. As tabelas mostram, lado a lado, o **comprimento (km)** e a porcentagem:
 
-- **% da Extensão** — quanto cada categoria representa da extensão total (km)
-- **% dos Trechos** — quanto representa da quantidade de trechos
-- **Vias (qtd)** — quantidade de vias (valor de contexto)
+- **Extensão (km)** — comprimento total da categoria, em quilômetros
+- **% da Extensão** — quanto cada categoria representa da extensão total
+- **Trechos (qtd)** e **% dos Trechos** — quantidade e participação dos trechos
+- **Vias (qtd)** — quantidade de vias
+- A linha de **TOTAL** traz a extensão somada e **100%** nas colunas de porcentagem
+
+Os gráficos de barras exibem a **% e o km** juntos em cada barra
+(ex.: `53,6% (60,99 km)`).
 
 A extensão total da malha (em km) continua aparecendo apenas no **Quadro Resumo**,
 como número geral de referência.
