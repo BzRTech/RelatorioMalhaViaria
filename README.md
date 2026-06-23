@@ -22,11 +22,13 @@ Isso evita confusão para quem lê o relatório. As tabelas mostram, lado a lado
 - **Trechos (qtd)** e **% dos Trechos** — quantidade e participação dos trechos
 - A linha de **TOTAL** traz a extensão somada e **100%** nas colunas de porcentagem
 
-> **Por que não há "quantidade de vias"?** Uma mesma via (logradouro) pode
-> atravessar vários setores/bairros. Por isso, contar "quantas vias" por
-> grupo é ambíguo (um bairro pode mostrar "0 vias" e ainda ter trechos, porque
-> o trecho 1 da rua está em outro bairro). As medidas **exatas** são a
-> **extensão (km)** e a **quantidade de trechos** — por isso o relatório usa só elas.
+> **Sobre a "quantidade de vias":** o **total geral de vias** do município
+> aparece no **Quadro Resumo** (indicador importante). Já **nas distribuições
+> por setor/bairro** essa contagem foi removida de propósito: uma mesma via
+> pode atravessar vários setores/bairros, então contar "quantas vias" por grupo
+> é ambíguo (um bairro pode mostrar "0 vias" e ainda ter trechos, porque o
+> trecho 1 da rua está em outro bairro). Por grupo, as medidas **exatas** são a
+> **extensão (km)** e a **quantidade de trechos**.
 
 Os gráficos de barras exibem a **% e o km** juntos em cada barra
 (ex.: `53,6% (60,99 km)`).

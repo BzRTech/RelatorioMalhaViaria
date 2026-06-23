@@ -295,6 +295,18 @@ def filtrar_trecho_1(df, col_map):
     return df.copy()
 
 
+def contar_vias_unicas(df, col_map):
+    """Conta vias (logradouros) únicas no município (considerando trecho = 1).
+
+    Usado APENAS no total geral do resumo. Não é usado por grupo (setor/
+    bairro), pois uma via cruza vários grupos e a contagem ficaria ambígua.
+    """
+    via = col_map.get("via")
+    if not (via and via in df.columns):
+        return None
+    return filtrar_trecho_1(df, col_map)[via].nunique()
+
+
 # ==========================================================================
 # CÁLCULO DOS QUANTITATIVOS (EM PORCENTAGEM)
 # ==========================================================================
@@ -421,6 +433,7 @@ def gerar_relatorio(df, col_map, nome_municipio):
         "total_registros": len(df),
     }
 
+    rel["total_vias"] = contar_vias_unicas(df, col_map)
     if col_map.get("trecho"):
         rel["total_trechos"] = len(df)
 
@@ -456,11 +469,18 @@ def gerar_relatorio(df, col_map, nome_municipio):
     # ----- Novos insights: denominação das vias -----
     if "_SEM_NOME" in df.columns:
         rel["denominacao_geral"] = analise_denominacao_geral(df, col_map)
-        # % geral sem denominação (extensão) para o resumo
+        # % geral sem denominação (extensão/trechos) para o resumo
         geral = rel["denominacao_geral"]
         if geral is not None and "Sem denominação" in geral.index:
             rel["pct_sem_nome_ext"] = geral.loc["Sem denominação", "% da Extensão"]
             rel["pct_sem_nome_tre"] = geral.loc["Sem denominação", "% dos Trechos"]
+
+        # % das VIAS sem denominação (total geral - indicador do resumo)
+        via = col_map.get("via")
+        if via and via in df.columns and rel.get("total_vias"):
+            df_t1 = filtrar_trecho_1(df, col_map)
+            vias_sem = df_t1.loc[df_t1["_SEM_NOME"], via].nunique()
+            rel["pct_sem_nome_vias"] = round(vias_sem / rel["total_vias"] * 100, 2)
 
         r_sem = ranking_bairro_sem_nome(df, col_map, top=10)
         if r_sem is not None and not r_sem.empty:
@@ -864,11 +884,17 @@ def exportar_excel(df, rel, col_map, caminho):
         add("Município", rel["municipio"])
         add("Mês/Ano de Referência", rel["data"])
         add("Total de Registros (Trechos)", formatar_inteiro_br(rel["total_registros"]))
+        if rel.get("total_vias"):
+            add("Total de Vias", formatar_inteiro_br(rel["total_vias"]))
         if "total_trechos" in rel:
             add("Total de Trechos", formatar_inteiro_br(rel["total_trechos"]))
         if "total_km" in rel:
             add("Extensão Total (km)", formatar_numero_br(rel["total_km"], 3))
             add("Extensão Total (m)", formatar_numero_br(rel["total_metros"], 2))
+        if "pct_sem_nome_vias" in rel:
+            add("Vias sem denominação (% das vias)", formatar_pct(rel["pct_sem_nome_vias"], 1))
+        if "pct_sem_nome_ext" in rel:
+            add("Vias sem denominação (% da extensão)", formatar_pct(rel.get("pct_sem_nome_ext", 0), 1))
         pd.DataFrame(resumo).to_excel(writer, sheet_name="Resumo", index=False)
 
         # Distribuições (% + total 100%)
@@ -1012,17 +1038,22 @@ def exportar_pdf(rel, graficos, caminho, logo_path=None):
         pdf.savefig(fig, bbox_inches="tight", facecolor="white")
         plt.close()
 
-        # Quadro resumo
+        # Quadro resumo (indicadores gerais)
         resumo_rows = [
-            ("Total de Trechos", formatar_inteiro_br(rel["total_registros"])),
+            ("Total de Registros (Trechos)", formatar_inteiro_br(rel["total_registros"])),
         ]
+        if rel.get("total_vias"):
+            resumo_rows.append(("Total de Vias", formatar_inteiro_br(rel["total_vias"])))
+        if "total_trechos" in rel:
+            resumo_rows.append(("Total de Trechos", formatar_inteiro_br(rel["total_trechos"])))
         if "total_km" in rel:
             resumo_rows.append(("Extensão Total (km)", formatar_numero_br(rel["total_km"], 3)))
+        if "pct_sem_nome_vias" in rel:
+            resumo_rows.append(("Vias sem denominação (% das vias)",
+                                formatar_pct(rel["pct_sem_nome_vias"], 1)))
         if "pct_sem_nome_ext" in rel:
-            resumo_rows.append(("Sem denominação (% da extensão)",
+            resumo_rows.append(("Vias sem denominação (% da extensão)",
                                 formatar_pct(rel.get("pct_sem_nome_ext", 0), 1)))
-            resumo_rows.append(("Sem denominação (% dos trechos)",
-                                formatar_pct(rel.get("pct_sem_nome_tre", 0), 1)))
         df_resumo = pd.DataFrame(resumo_rows, columns=["Indicador", "Valor"])
         _pagina_tabela(pdf, "QUADRO RESUMO", df_resumo, municipio)
 
@@ -1200,11 +1231,13 @@ def main():
     print("=" * 60)
     print(f"   • Município: {nome_municipio} ({rel['data']})")
     print(f"   • Trechos: {formatar_inteiro_br(rel['total_registros'])}")
+    if rel.get("total_vias"):
+        print(f"   • Vias: {formatar_inteiro_br(rel['total_vias'])}")
     if "total_km" in rel:
         print(f"   • Extensão total: {formatar_numero_br(rel['total_km'], 3)} km")
-    if "pct_sem_nome_ext" in rel:
-        print(f"   • Sem denominação: {formatar_pct(rel.get('pct_sem_nome_ext', 0), 1)} "
-              f"da extensão ({formatar_pct(rel.get('pct_sem_nome_tre', 0), 1)} dos trechos)")
+    if "pct_sem_nome_vias" in rel:
+        print(f"   • Vias sem denominação: {formatar_pct(rel['pct_sem_nome_vias'], 1)} das vias "
+              f"({formatar_pct(rel.get('pct_sem_nome_ext', 0), 1)} da extensão)")
     print(f"\n📁 Arquivos em: {os.path.abspath(args.saida)}")
     print(f"   • Excel:    {os.path.basename(arquivo_excel)}")
     print(f"   • PDF:      {os.path.basename(arquivo_pdf)}")
