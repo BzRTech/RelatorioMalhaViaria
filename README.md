@@ -20,27 +20,32 @@ Isso evita confusão para quem lê o relatório. As tabelas mostram, lado a lado
 - **Extensão (km)** — comprimento total da categoria, em quilômetros
 - **% da Extensão** — quanto cada categoria representa da extensão total
 - **Trechos (qtd)** e **% dos Trechos** — quantidade e participação dos trechos
-- **Vias (qtd)** — quantidade de vias
 - A linha de **TOTAL** traz a extensão somada e **100%** nas colunas de porcentagem
+
+> **Por que não há "quantidade de vias"?** Uma mesma via (logradouro) pode
+> atravessar vários setores/bairros. Por isso, contar "quantas vias" por
+> grupo é ambíguo (um bairro pode mostrar "0 vias" e ainda ter trechos, porque
+> o trecho 1 da rua está em outro bairro). As medidas **exatas** são a
+> **extensão (km)** e a **quantidade de trechos** — por isso o relatório usa só elas.
 
 Os gráficos de barras exibem a **% e o km** juntos em cada barra
 (ex.: `53,6% (60,99 km)`).
 
 A extensão total da malha (em km) continua aparecendo apenas no **Quadro Resumo**,
-como número geral de referência.
+como número geral de referência. A data do relatório é exibida apenas como
+**mês/ano** (ex.: `Junho/2026`).
 
 ## Novos insights (denominação das vias)
 
 Além das distribuições, o relatório identifica as **vias sem denominação**
 (logradouros cujo nome contém "SEM NOME" ou está em branco) e traz:
 
-- **Denominação geral** — % de vias com nome x sem denominação (vias, trechos e extensão)
-- **Bairros com mais vias nominadas** — ranking estilo Centro / Juliana Pires
+- **Denominação geral** — extensão (km) e % com nome x sem denominação (por extensão e trechos)
 - **Bairros com mais logradouros sem denominação** — para priorizar ações de nomeação
-- **Sem denominação por setor e por pavimentação** — onde se concentram as vias sem nome
+- **Sem denominação por pavimentação** — onde se concentram as vias sem nome
 
-> Exemplo real (Tabira/PE): **67,4% das vias** estão sem denominação, e elas se
-> concentram no **leito natural (60,7%)** — ou seja, ruas ainda não pavimentadas.
+> Exemplo real (Tabira/PE): **49,9% da extensão** está sem denominação, e essas
+> vias se concentram no **leito natural (60,7%)** — ou seja, ruas ainda não pavimentadas.
 
 ## Formatos de entrada aceitos
 
@@ -119,7 +124,6 @@ relatorio_saida/
     ├── fig_07_denominacao.png
     ├── fig_08_bairros_sem_denominacao.png
     ├── fig_09_sem_nome_pavimentacao.png
-    ├── fig_10_sem_nome_setor.png
     └── treemap_setor_bairro.html
 ```
 
