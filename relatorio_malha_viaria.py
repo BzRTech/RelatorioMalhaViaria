@@ -72,6 +72,53 @@ PADRAO_SEM_NOME = "SEM NOME"
 # Valores tratados como "vazio" / não informado
 VAZIO = "NÃO INFORMADO"
 
+# Introdução da seção "Como ler os gráficos"
+INTRO_EXPLICACAO = (
+    "Salvo indicação em contrário, as porcentagens deste relatório referem-se à "
+    "EXTENSÃO da malha viária - ou seja, à soma dos comprimentos (km) dos trechos - "
+    "e NÃO à quantidade de vias. A fórmula é: % = km da categoria ÷ km total do "
+    "município. Quando um gráfico usa quantidades (contagem de trechos ou de "
+    "logradouros) em vez de extensão, isso está indicado na explicação abaixo."
+)
+
+# Explicação de cada gráfico: (arquivo, título, o que mostra, base do cálculo)
+EXPLICACOES_GRAFICOS = [
+    ("fig_01_setores.png", "Gráfico 1 - Distribuição por Setor",
+     "Participação de cada setor na malha viária (barras + pizza).",
+     "% da extensão: km do setor ÷ km total. Os rótulos mostram a % e o km."),
+    ("fig_02_bairros.png", "Gráfico 2 - Top 15 Bairros",
+     "Os 15 bairros com maior extensão de vias.",
+     "% da extensão: km do bairro ÷ km total. Os rótulos mostram a % e o km."),
+    ("fig_03_status.png", "Gráfico 3 - Status das Vias",
+     "Proporção de cada situação (pavimentada, não pavimentada, etc.).",
+     "% da extensão: km do status ÷ km total."),
+    ("fig_04_pavimentacao.png", "Gráfico 4 - Tipo de Pavimentação",
+     "Proporção de cada tipo de revestimento.",
+     "% da extensão: km do tipo ÷ km total."),
+    ("fig_05_setor_status.png", "Gráfico 5 - Setor x Status (empilhado)",
+     "Composição dos status dentro de cada setor.",
+     "% da extensão total: cada faixa = km daquele setor+status ÷ km total do município."),
+    ("fig_06_heatmap_setor_pavimentacao.png", "Gráfico 6 - Mapa de Calor (Setor x Pavimentação)",
+     "Cruzamento entre setor e tipo de pavimentação.",
+     "Cada célula = % da extensão total (km da combinação ÷ km total)."),
+    ("fig_07_denominacao.png", "Gráfico 7 - Denominação das Vias",
+     "Quanto da malha tem nome x está sem denominação. Considera-se 'sem "
+     "denominação' a via cujo nome contém 'SEM NOME' ou está em branco.",
+     "% da extensão: km ÷ km total."),
+    ("fig_08_bairros_sem_denominacao.png", "Gráfico 8 - Bairros com mais logradouros sem denominação",
+     "Ranking dos bairros com mais ruas sem nome, para priorizar a denominação.",
+     "QUANTIDADE: contagem de logradouros sem nome distintos em cada bairro "
+     "(não é extensão)."),
+    ("fig_09_sem_nome_pavimentacao.png", "Gráfico 9 - Sem denominação por Pavimentação",
+     "Dentro de cada tipo de pavimentação, quanto está sem nome.",
+     "% de TRECHOS: trechos sem nome do tipo ÷ total de trechos do tipo "
+     "(é % de quantidade de trechos, não de extensão)."),
+    ("treemap_setor_bairro.html", "Treemap interativo (arquivo .html) - Setor e Bairro",
+     "Áreas proporcionais à extensão, organizadas por setor e bairro. Abra o "
+     "arquivo .html no navegador para explorar.",
+     "% da extensão: km ÷ km total."),
+]
+
 
 # ==========================================================================
 # FORMATAÇÃO BRASILEIRA
@@ -871,8 +918,9 @@ def gerar_graficos(df, rel, col_map, pasta_graficos):
 # EXPORTAÇÃO PARA EXCEL
 # ==========================================================================
 
-def exportar_excel(df, rel, col_map, caminho):
+def exportar_excel(df, rel, col_map, caminho, graficos=None):
     """Gera o relatório Excel com abas em porcentagem."""
+    graficos = graficos or []
     with pd.ExcelWriter(caminho, engine="openpyxl") as writer:
         # Resumo executivo
         resumo = {"Indicador": [], "Valor": []}
@@ -931,6 +979,18 @@ def exportar_excel(df, rel, col_map, caminho):
             t = rel["sem_nome_por_pavimentacao"].copy()
             t["% sem denominação"] = t["% sem denominação"].apply(lambda v: formatar_pct(v, 2))
             t.to_excel(writer, sheet_name="Sem nome p_ pavim")
+
+        # Aba de notas: como ler os gráficos / origem das porcentagens
+        presentes = {os.path.basename(g) for g in graficos}
+        notas = [{"Gráfico": t, "O que mostra": m, "Base do cálculo": b}
+                 for arq, t, m, b in EXPLICACOES_GRAFICOS if arq in presentes]
+        if notas:
+            df_notas = pd.concat([
+                pd.DataFrame([{"Gráfico": "OBSERVAÇÃO GERAL", "O que mostra": INTRO_EXPLICACAO,
+                               "Base do cálculo": ""}]),
+                pd.DataFrame(notas),
+            ], ignore_index=True)
+            df_notas.to_excel(writer, sheet_name="Notas", index=False)
 
 
 # ==========================================================================
@@ -1002,8 +1062,59 @@ def _pagina_tabela(pdf, titulo, df_show, municipio, rodape_extra=None):
     plt.close()
 
 
+def _paginas_explicacao(pdf, graficos, municipio):
+    """Adiciona ao PDF as páginas 'Como ler os gráficos'."""
+    import textwrap
+    presentes = {os.path.basename(g) for g in graficos}
+    entradas = [(t, m, b) for arq, t, m, b in EXPLICACOES_GRAFICOS if arq in presentes]
+    if not entradas:
+        return
+    ano = datetime.now().strftime("%Y")
+
+    def nova_pagina():
+        f = plt.figure(figsize=(8.5, 11))
+        f.patch.set_facecolor("white")
+        f.text(0.5, 0.95, "COMO LER OS GRÁFICOS", ha="center", fontsize=16,
+               fontweight="bold", color="#2C2C2C")
+        f.text(0.5, 0.93, "─" * 60, ha="center", fontsize=10, color="#FFD700")
+        return f, 0.89
+
+    fig, y = nova_pagina()
+    # Introdução
+    for linha in textwrap.wrap(INTRO_EXPLICACAO, 92):
+        fig.text(0.07, y, linha, ha="left", fontsize=9.5, color="#424242")
+        y -= 0.021
+    y -= 0.02
+
+    for titulo, mostra, base in entradas:
+        linhas_mostra = textwrap.wrap(mostra, 95)
+        linhas_base = textwrap.wrap("Base: " + base, 95)
+        necessario = 0.030 + 0.019 * (len(linhas_mostra) + len(linhas_base)) + 0.02
+        if y - necessario < 0.06:
+            fig.text(0.5, 0.03, f"{municipio} - {ano}", ha="center", fontsize=9,
+                     color="#9E9E9E", style="italic")
+            pdf.savefig(fig, bbox_inches="tight", facecolor="white")
+            plt.close()
+            fig, y = nova_pagina()
+
+        fig.text(0.07, y, titulo, ha="left", fontsize=11, fontweight="bold", color="#2C2C2C")
+        y -= 0.027
+        for linha in linhas_mostra:
+            fig.text(0.09, y, linha, ha="left", fontsize=9.5, color="#424242")
+            y -= 0.019
+        for linha in linhas_base:
+            fig.text(0.09, y, linha, ha="left", fontsize=9.5, color="#757575")
+            y -= 0.019
+        y -= 0.016
+
+    fig.text(0.5, 0.03, f"{municipio} - {ano}", ha="center", fontsize=9,
+             color="#9E9E9E", style="italic")
+    pdf.savefig(fig, bbox_inches="tight", facecolor="white")
+    plt.close()
+
+
 def exportar_pdf(rel, graficos, caminho, logo_path=None):
-    """Gera o relatório PDF (capa + tabelas em % + gráficos)."""
+    """Gera o relatório PDF (capa + tabelas em % + gráficos + explicações)."""
     municipio = rel["municipio"]
     with PdfPages(caminho) as pdf:
         # Capa
@@ -1126,6 +1237,9 @@ def exportar_pdf(rel, graficos, caminho, logo_path=None):
             except Exception as e:  # noqa: BLE001
                 print(f"   (gráfico não incluído no PDF: {img_file}: {e})")
 
+        # Explicação de cada gráfico (ao final)
+        _paginas_explicacao(pdf, graficos, municipio)
+
 
 # ==========================================================================
 # UTILIDADES DE ENTRADA
@@ -1225,7 +1339,7 @@ def main():
     arquivo_pdf = os.path.join(args.saida, f"Relatorio_Completo_{base}.pdf")
 
     print("📑 Gerando Excel...")
-    exportar_excel(df, rel, col_map, arquivo_excel)
+    exportar_excel(df, rel, col_map, arquivo_excel, graficos)
     print(f"   ✓ {arquivo_excel}")
 
     print("📄 Gerando PDF...")
