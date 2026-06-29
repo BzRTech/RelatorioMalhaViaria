@@ -33,6 +33,21 @@ Isso evita confusão para quem lê o relatório. As tabelas mostram, lado a lado
 Os gráficos de barras exibem a **% e o km** juntos em cada barra
 (ex.: `53,6% (60,99 km)`).
 
+### Unidade de cada gráfico
+
+A unidade foi escolhida pelo que cada gráfico realmente mede:
+
+| Gráfico | Unidade | Por quê |
+|---------|---------|---------|
+| Setor, Bairro, Setor×Status, Heatmap, Treemap | **% da extensão (km)** | distribuição territorial — cada metro pertence a um só local; contar vias é ambíguo (a via cruza fronteiras) |
+| Status, Pavimentação | **% da extensão (km)** | variam ao longo da via (uma rua pode ser meio pavimentada) |
+| Denominação geral | **% das vias distintas** | "ter nome" é propriedade do logradouro inteiro |
+| Bairros sem denominação | **qtd de trechos** | igual à seleção "SEM NOME" no QGIS; mede o tamanho da lacuna |
+| Sem denominação por pavimentação | **% de trechos** | fração de trechos sem nome em cada tipo |
+
+O relatório traz, ao final, uma seção **"Como ler os gráficos"** com essa
+explicação para cada figura (também na aba **Notas** do Excel).
+
 A extensão total da malha (em km) continua aparecendo apenas no **Quadro Resumo**,
 como número geral de referência. A data do relatório é exibida apenas como
 **mês/ano** (ex.: `Junho/2026`).
@@ -42,14 +57,17 @@ como número geral de referência. A data do relatório é exibida apenas como
 Além das distribuições, o relatório identifica as **vias sem denominação**
 (logradouros cujo nome contém "SEM NOME" ou está em branco) e traz:
 
-- **Denominação geral** — extensão (km) e % com nome x sem denominação (por extensão e trechos)
+- **Denominação geral** — por **vias distintas** (% dos logradouros com nome x sem
+  nome), pois "ter nome" é propriedade do logradouro inteiro; a extensão (km)
+  aparece ao lado como referência
 - **Bairros com mais trechos sem denominação** — contagem de trechos (segmentos)
   sem nome por bairro, igual à seleção de feições "SEM NOME" no QGIS; reflete o
   tamanho real da lacuna cadastral
-- **Sem denominação por pavimentação** — onde se concentram as vias sem nome
+- **Sem denominação por pavimentação** — % de trechos sem nome em cada tipo
 
-> Exemplo real (Tabira/PE): **49,9% da extensão** está sem denominação, e essas
-> vias se concentram no **leito natural (60,7%)** — ou seja, ruas ainda não pavimentadas.
+> Exemplo real (Tabira/PE): **62,9% dos logradouros** estão sem denominação
+> (equivalente a **44,7% da extensão**, ≈57 km), e essas vias se concentram no
+> **leito natural** — ou seja, ruas ainda não pavimentadas.
 
 ## Formatos de entrada aceitos
 

@@ -101,10 +101,12 @@ EXPLICACOES_GRAFICOS = [
     ("fig_06_heatmap_setor_pavimentacao.png", "Gráfico 6 - Mapa de Calor (Setor x Pavimentação)",
      "Cruzamento entre setor e tipo de pavimentação.",
      "Cada célula = % da extensão total (km da combinação ÷ km total)."),
-    ("fig_07_denominacao.png", "Gráfico 7 - Denominação das Vias",
-     "Quanto da malha tem nome x está sem denominação. Considera-se 'sem "
-     "denominação' a via cujo nome contém 'SEM NOME' ou está em branco.",
-     "% da extensão: km ÷ km total."),
+    ("fig_07_denominacao.png", "Gráfico 7 - Denominação dos Logradouros",
+     "Quantos logradouros (vias) têm nome x estão sem denominação. Considera-se "
+     "'sem denominação' a via cujo nome contém 'SEM NOME' ou está em branco.",
+     "% das VIAS distintas: cada logradouro conta 1, pois ter nome é propriedade "
+     "do logradouro inteiro (não varia ao longo da via). Para referência, por "
+     "extensão a fração sem nome é menor - veja o Quadro Resumo."),
     ("fig_08_bairros_sem_denominacao.png", "Gráfico 8 - Bairros com mais trechos sem denominação",
      "Ranking dos bairros com mais trechos sem nome, para priorizar a denominação.",
      "QUANTIDADE: contagem de TRECHOS (segmentos) sem nome em cada bairro - "
@@ -410,39 +412,53 @@ def distribuicao_percentual(df, col_map, coluna_grupo):
 
 def analise_denominacao_geral(df, col_map):
     """
-    Resumo geral COM nome x SEM denominação, em porcentagem.
-    Colunas (somam 100%): Extensão (km), % da Extensão, % dos Trechos.
-    Medido por extensão e trechos (não por contagem de vias, que é ambígua).
+    Resumo geral COM nome x SEM denominação.
+
+    Medida principal: VIAS DISTINTAS (logradouros), pois 'ter nome' é uma
+    propriedade do logradouro inteiro - a via tem nome ou não, independente de
+    quantos trechos/setores atravessa. A extensão (km) entra como contexto.
+    Colunas: Vias (qtd), % das Vias, Extensão (km), % da Extensão.
     """
     if "_SEM_NOME" not in df.columns:
         return None
     comp = col_map.get("comprimento")
+    via = col_map.get("via")
 
-    total_tre = len(df)
-    tre_sem = int(df["_SEM_NOME"].sum())
+    # Vias (logradouros) distintos - usa trecho 1 para identificar cada via
+    df_t1 = filtrar_trecho_1(df, col_map)
+    if via and via in df.columns:
+        total_vias = df_t1[via].nunique()
+        vias_sem = df_t1.loc[df_t1["_SEM_NOME"], via].nunique()
+    else:
+        total_vias = len(df_t1)
+        vias_sem = int(df_t1["_SEM_NOME"].sum())
+    vias_com = total_vias - vias_sem
 
+    # Extensão (contexto)
     if comp and comp in df.columns:
         ext_total = df[comp].sum() or 1
         ext_sem = df.loc[df["_SEM_NOME"], comp].sum()
     else:
-        ext_total, ext_sem = total_tre, tre_sem
+        ext_total, ext_sem = total_vias, vias_sem
 
-    def linha(v_ext, v_tre):
+    def linha(v_vias, v_ext):
         return {
+            "Vias (qtd)": int(v_vias),
+            "% das Vias": round((v_vias / (total_vias or 1)) * 100, 2),
             "Extensão (km)": round(v_ext / 1000, 3),
             "% da Extensão": round((v_ext / (ext_total or 1)) * 100, 2),
-            "% dos Trechos": round((v_tre / (total_tre or 1)) * 100, 2),
         }
 
     tab = pd.DataFrame({
-        "Com denominação": linha(ext_total - ext_sem, total_tre - tre_sem),
-        "Sem denominação": linha(ext_sem, tre_sem),
+        "Com denominação": linha(vias_com, ext_total - ext_sem),
+        "Sem denominação": linha(vias_sem, ext_sem),
     }).T
     tab.index.name = "Categoria"
     tab.loc["TOTAL"] = {
+        "Vias (qtd)": int(total_vias),
+        "% das Vias": 100.0,
         "Extensão (km)": round(ext_total / 1000, 3),
         "% da Extensão": 100.0,
-        "% dos Trechos": 100.0,
     }
     return tab
 
@@ -526,18 +542,11 @@ def gerar_relatorio(df, col_map, nome_municipio):
     # ----- Novos insights: denominação das vias -----
     if "_SEM_NOME" in df.columns:
         rel["denominacao_geral"] = analise_denominacao_geral(df, col_map)
-        # % geral sem denominação (extensão/trechos) para o resumo
+        # Indicadores de sem denominação para o resumo
         geral = rel["denominacao_geral"]
         if geral is not None and "Sem denominação" in geral.index:
             rel["pct_sem_nome_ext"] = geral.loc["Sem denominação", "% da Extensão"]
-            rel["pct_sem_nome_tre"] = geral.loc["Sem denominação", "% dos Trechos"]
-
-        # % das VIAS sem denominação (total geral - indicador do resumo)
-        via = col_map.get("via")
-        if via and via in df.columns and rel.get("total_vias"):
-            df_t1 = filtrar_trecho_1(df, col_map)
-            vias_sem = df_t1.loc[df_t1["_SEM_NOME"], via].nunique()
-            rel["pct_sem_nome_vias"] = round(vias_sem / rel["total_vias"] * 100, 2)
+            rel["pct_sem_nome_vias"] = geral.loc["Sem denominação", "% das Vias"]
 
         r_sem = ranking_bairro_sem_nome(df, col_map, top=10)
         if r_sem is not None and not r_sem.empty:
@@ -753,10 +762,11 @@ def grafico_heatmap_pct(df, col_map, linha, coluna, titulo, nome_arquivo, pasta)
 
 
 def grafico_denominacao(tab_geral, nome_arquivo, pasta):
-    """Pizza COM nome x SEM denominação (% da extensão)."""
-    if tab_geral is None or "% da Extensão" not in tab_geral.columns:
+    """Pizza COM nome x SEM denominação (% das vias/logradouros distintos)."""
+    coluna = "% das Vias" if (tab_geral is not None and "% das Vias" in tab_geral.columns) else "% da Extensão"
+    if tab_geral is None or coluna not in tab_geral.columns:
         return None
-    dados = tab_geral.drop(index="TOTAL", errors="ignore")["% da Extensão"]
+    dados = tab_geral.drop(index="TOTAL", errors="ignore")[coluna]
     if dados.empty:
         return None
     cores = ["#388E3C", "#D32F2F"][:len(dados)]
@@ -766,7 +776,8 @@ def grafico_denominacao(tab_geral, nome_arquivo, pasta):
         dados.values, labels=dados.index.astype(str),
         autopct=lambda pct: formatar_pct(pct, 1), colors=cores, startangle=90,
         textprops={"fontweight": "bold", "fontsize": 11})
-    ax.set_title("Denominação das Vias (% da extensão)", fontsize=14,
+    sufixo = "% das vias" if coluna == "% das Vias" else "% da extensão"
+    ax.set_title(f"Denominação dos Logradouros ({sufixo})", fontsize=14,
                  fontweight="bold", color="#2C2C2C")
     for at in autotexts:
         at.set_color("white")
@@ -1220,8 +1231,8 @@ def exportar_pdf(rel, graficos, caminho, logo_path=None):
         # ----- Novos insights: denominação -----
         if "denominacao_geral" in rel:
             g = formatar_tabela_br(rel["denominacao_geral"]).reset_index()
-            _pagina_tabela(pdf, "DENOMINAÇÃO DAS VIAS", g, municipio,
-                           "Vias com nome x sem denominação (texto 'SEM NOME' no logradouro)")
+            _pagina_tabela(pdf, "DENOMINAÇÃO DOS LOGRADOUROS", g, municipio,
+                           "Por vias distintas (cada logradouro conta 1); extensão em km como referência")
 
         if "ranking_bairro_sem_nome" in rel:
             t = rel["ranking_bairro_sem_nome"].copy()
