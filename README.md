@@ -48,6 +48,15 @@ A unidade foi escolhida pelo que cada gráfico realmente mede:
 O relatório traz, ao final, uma seção **"Como ler os gráficos"** com essa
 explicação para cada figura (também na aba **Notas** do Excel).
 
+### Limpeza automática de categorias
+
+Setor, bairro, status e pavimentação são **unificados automaticamente** quando
+aparecem com grafias diferentes só por **acento, maiúscula ou espaços**
+(ex.: `ESPIRITO SANTO` e `ESPÍRITO SANTO`, ou `ANTONIO CRISTÓVÃO` e
+`ANTÔNIO CRISTÓVÃO` viram uma única categoria). Isso evita que o mesmo bairro
+apareça duplicado nos gráficos e nas tabelas. O rótulo exibido é a grafia mais
+frequente no arquivo.
+
 A extensão total da malha (em km) continua aparecendo apenas no **Quadro Resumo**,
 como número geral de referência. A data do relatório é exibida apenas como
 **mês/ano** (ex.: `Junho/2026`).

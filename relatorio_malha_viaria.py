@@ -325,8 +325,40 @@ def converter_para_float(valor):
         return 0.0
 
 
+def _chave_normalizada(texto):
+    """Chave para comparar categorias ignorando acento, caixa e espaços extras."""
+    import unicodedata
+    s = unicodedata.normalize("NFKD", str(texto))
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return " ".join(s.upper().split())
+
+
+def canonicalizar_categoria(serie):
+    """
+    Unifica variantes da mesma categoria (acento/maiúscula/espaços diferentes)
+    sob uma única grafia. Ex.: 'ESPIRITO SANTO' e 'ESPÍRITO SANTO' viram uma só.
+    Escolhe como rótulo a grafia mais frequente (desempate: a mais acentuada).
+    """
+    from collections import defaultdict
+    vc = serie.value_counts()
+    grupos = defaultdict(list)
+    for valor, qtd in vc.items():
+        grupos[_chave_normalizada(valor)].append((valor, qtd))
+    mapa = {}
+    for itens in grupos.values():
+        if len(itens) == 1:
+            mapa[itens[0][0]] = itens[0][0]
+            continue
+        canonico = sorted(
+            itens, key=lambda x: (x[1], sum(1 for c in x[0] if ord(c) > 127))
+        )[-1][0]
+        for valor, _ in itens:
+            mapa[valor] = canonico
+    return serie.map(mapa)
+
+
 def preparar_dados(df, col_map):
-    """Limpa nulos, normaliza vazios e converte a coluna de comprimento."""
+    """Limpa nulos, normaliza vazios/acentos e converte a coluna de comprimento."""
     df = df.copy()
     comp = col_map.get("comprimento")
     for col in col_map.values():
@@ -334,6 +366,13 @@ def preparar_dados(df, col_map):
             # nulos e strings vazias/espacos -> NÃO INFORMADO
             serie = df[col].fillna(VAZIO).astype(str).str.strip()
             df[col] = serie.replace({"": VAZIO, "nan": VAZIO, "None": VAZIO})
+
+    # Unifica grafias divergentes (acento/caixa) das categorias de agrupamento,
+    # para o mesmo bairro/setor/status/tipo não aparecer duplicado nos gráficos.
+    for chave in ("setor", "bairro", "status", "pavimentacao"):
+        col = col_map.get(chave)
+        if col and col in df.columns:
+            df[col] = canonicalizar_categoria(df[col])
 
     if comp and comp in df.columns:
         df[comp] = df[comp].apply(converter_para_float)
