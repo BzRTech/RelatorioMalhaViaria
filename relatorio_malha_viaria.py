@@ -105,10 +105,10 @@ EXPLICACOES_GRAFICOS = [
      "Quanto da malha tem nome x está sem denominação. Considera-se 'sem "
      "denominação' a via cujo nome contém 'SEM NOME' ou está em branco.",
      "% da extensão: km ÷ km total."),
-    ("fig_08_bairros_sem_denominacao.png", "Gráfico 8 - Bairros com mais logradouros sem denominação",
-     "Ranking dos bairros com mais ruas sem nome, para priorizar a denominação.",
-     "QUANTIDADE: contagem de logradouros sem nome distintos em cada bairro "
-     "(não é extensão)."),
+    ("fig_08_bairros_sem_denominacao.png", "Gráfico 8 - Bairros com mais trechos sem denominação",
+     "Ranking dos bairros com mais trechos sem nome, para priorizar a denominação.",
+     "QUANTIDADE: contagem de TRECHOS (segmentos) sem nome em cada bairro - "
+     "mesma contagem da seleção de feições 'SEM NOME' no QGIS (não é extensão)."),
     ("fig_09_sem_nome_pavimentacao.png", "Gráfico 9 - Sem denominação por Pavimentação",
      "Dentro de cada tipo de pavimentação, quanto está sem nome.",
      "% de TRECHOS: trechos sem nome do tipo ÷ total de trechos do tipo "
@@ -205,24 +205,35 @@ def ler_csv(caminho):
         raise RuntimeError(f"Não foi possível ler o CSV '{caminho}': {ultimo_erro or e}")
 
 
-def ler_shapefile(caminho_shp):
-    """Lê a tabela de atributos de um shapefile (.shp/.dbf) como DataFrame."""
+def ler_shapefile(caminho):
+    """Lê a tabela de atributos de um shapefile (.shp) ou .dbf como DataFrame."""
     try:
         import shapefile  # pyshp
     except ImportError:
         raise RuntimeError(
             "Para ler shapefiles instale a biblioteca pyshp: pip install pyshp")
 
+    so_dbf = caminho.lower().endswith(".dbf")
     erro = None
+    # Tenta utf-8 (strict) primeiro; se falhar, usa latin-1. Assim acentos
+    # ficam corretos tanto em arquivos UTF-8 quanto Latin-1.
     for enc in ("utf-8", "latin-1"):
         try:
-            r = shapefile.Reader(caminho_shp, encoding=enc)
-            campos = [f[0] for f in r.fields[1:]]  # ignora DeletionFlag
-            dados = [list(rec) for rec in r.records()]
+            if so_dbf:
+                with open(caminho, "rb") as fh:
+                    r = shapefile.Reader(dbf=fh, encoding=enc, encodingErrors="strict")
+                    campos = [f[0] for f in r.fields[1:]]
+                    dados = [list(rec) for rec in r.records()]
+            else:
+                r = shapefile.Reader(caminho, encoding=enc, encodingErrors="strict")
+                campos = [f[0] for f in r.fields[1:]]  # ignora DeletionFlag
+                dados = [list(rec) for rec in r.records()]
             return pd.DataFrame(dados, columns=campos)
+        except UnicodeDecodeError as e:
+            erro = e  # encoding errado: tenta o próximo
         except Exception as e:  # noqa: BLE001
             erro = e
-    raise RuntimeError(f"Não foi possível ler o shapefile '{caminho_shp}': {erro}")
+    raise RuntimeError(f"Não foi possível ler o shapefile/dbf '{caminho}': {erro}")
 
 
 def _extrair_zip(caminho, destino):
@@ -270,18 +281,21 @@ def carregar_dados(caminho):
         caminho = destino
         caminho_l = caminho.lower()
 
-    # PASTA: procura .shp e depois .csv
+    # PASTA: procura .shp, depois .dbf e depois .csv
     if os.path.isdir(caminho):
         shps = glob.glob(os.path.join(caminho, "**", "*.shp"), recursive=True)
         if shps:
             return ler_shapefile(shps[0]), temporarios
+        dbfs = glob.glob(os.path.join(caminho, "**", "*.dbf"), recursive=True)
+        if dbfs:
+            return ler_shapefile(dbfs[0]), temporarios
         csvs = glob.glob(os.path.join(caminho, "**", "*.csv"), recursive=True)
         if csvs:
             return ler_csv(csvs[0]), temporarios
-        raise RuntimeError(f"Nenhum .shp ou .csv encontrado em: {caminho}")
+        raise RuntimeError(f"Nenhum .shp, .dbf ou .csv encontrado em: {caminho}")
 
     # ARQUIVO direto
-    if caminho_l.endswith(".shp"):
+    if caminho_l.endswith(".shp") or caminho_l.endswith(".dbf"):
         return ler_shapefile(caminho), temporarios
     if caminho_l.endswith(".csv"):
         return ler_csv(caminho), temporarios
@@ -291,7 +305,7 @@ def carregar_dados(caminho):
     raise RuntimeError(
         f"Formato de arquivo não suportado: {ext}\n"
         f"   Arquivo: {caminho}\n"
-        "   Use um destes: .csv, .shp (shapefile), uma pasta, .zip ou .rar.\n"
+        "   Use um destes: .csv, .shp/.dbf (shapefile), uma pasta, .zip ou .rar.\n"
         "   Dica: se for um shapefile compactado, extraia e aponte para o .shp.")
 
 
@@ -434,24 +448,20 @@ def analise_denominacao_geral(df, col_map):
 
 
 def ranking_bairro_sem_nome(df, col_map, top=10):
-    """Bairros com mais logradouros SEM denominação (quantidade de ruas distintas)."""
+    """Bairros com mais TRECHOS sem denominação.
+
+    Conta os trechos (segmentos) sem nome por bairro - mesma contagem que se
+    obtém ao selecionar as feições 'SEM NOME' no QGIS. Reflete o tamanho real
+    da lacuna cadastral (um logradouro comprido tem vários trechos).
+    """
     bairro = col_map.get("bairro")
-    via = col_map.get("via")
     if not (bairro and bairro in df.columns and "_SEM_NOME" in df.columns):
         return None
 
-    # Conta ruas SEM nome distintas que passam pelo bairro (todos os trechos).
-    # Cada "RUA SEM NOME ####" tem ID próprio, então nunique é uma contagem
-    # robusta - não depende de qual trecho é o "trecho 1".
-    df_sem = df[df["_SEM_NOME"]]
-    if via:
-        sem = df_sem.groupby(bairro)[via].nunique()
-    else:
-        sem = df_sem.groupby(bairro).size()
-
-    tab = pd.DataFrame({"Logradouros sem denominação": sem.astype(int)})
-    tab = tab[tab["Logradouros sem denominação"] > 0]
-    tab = tab.sort_values("Logradouros sem denominação", ascending=False)
+    sem = df[df["_SEM_NOME"]].groupby(bairro).size()
+    tab = pd.DataFrame({"Trechos sem denominação": sem.astype(int)})
+    tab = tab[tab["Trechos sem denominação"] > 0]
+    tab = tab.sort_values("Trechos sem denominação", ascending=False)
     return tab.head(top)
 
 
@@ -871,9 +881,9 @@ def gerar_graficos(df, rel, col_map, pasta_graficos):
 
     if "ranking_bairro_sem_nome" in rel:
         f = grafico_ranking_qtd(
-            rel["ranking_bairro_sem_nome"], "Logradouros sem denominação",
-            "Bairros com mais logradouros sem denominação",
-            "Logradouros sem denominação (qtd)",
+            rel["ranking_bairro_sem_nome"], "Trechos sem denominação",
+            "Bairros com mais trechos sem denominação",
+            "Trechos sem denominação (qtd)",
             "fig_08_bairros_sem_denominacao.png", pasta_graficos)
         if f:
             gerados.append(f)
@@ -1216,7 +1226,7 @@ def exportar_pdf(rel, graficos, caminho, logo_path=None):
         if "ranking_bairro_sem_nome" in rel:
             t = rel["ranking_bairro_sem_nome"].copy()
             t.insert(0, "Ranking", [f"{i}." for i in range(1, len(t) + 1)])
-            _pagina_tabela(pdf, "BAIRROS COM MAIS LOGRADOUROS SEM DENOMINAÇÃO",
+            _pagina_tabela(pdf, "BAIRROS COM MAIS TRECHOS SEM DENOMINAÇÃO",
                            t.reset_index(), municipio)
 
         if "sem_nome_por_pavimentacao" in rel:
@@ -1252,7 +1262,11 @@ def descobrir_entrada(arg):
             sys.exit(f"❌ Arquivo não encontrado: {arg}")
         return arg
 
-    achados = sorted(glob.glob("*.csv") + glob.glob("*.shp")
+    shps = glob.glob("*.shp")
+    # inclui .dbf só quando não há um .shp de mesmo nome (evita listar os dois)
+    bases_shp = {os.path.splitext(s)[0] for s in shps}
+    dbfs = [d for d in glob.glob("*.dbf") if os.path.splitext(d)[0] not in bases_shp]
+    achados = sorted(glob.glob("*.csv") + shps + dbfs
                      + glob.glob("*.zip") + glob.glob("*.rar"))
     if len(achados) == 1:
         print(f"📁 Arquivo encontrado automaticamente: {achados[0]}")

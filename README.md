@@ -43,7 +43,9 @@ Além das distribuições, o relatório identifica as **vias sem denominação**
 (logradouros cujo nome contém "SEM NOME" ou está em branco) e traz:
 
 - **Denominação geral** — extensão (km) e % com nome x sem denominação (por extensão e trechos)
-- **Bairros com mais logradouros sem denominação** — para priorizar ações de nomeação
+- **Bairros com mais trechos sem denominação** — contagem de trechos (segmentos)
+  sem nome por bairro, igual à seleção de feições "SEM NOME" no QGIS; reflete o
+  tamanho real da lacuna cadastral
 - **Sem denominação por pavimentação** — onde se concentram as vias sem nome
 
 > Exemplo real (Tabira/PE): **49,9% da extensão** está sem denominação, e essas
@@ -55,8 +57,9 @@ Além das distribuições, o relatório identifica as **vias sem denominação**
 |--------------------|------------------------------------------------|
 | CSV                | `arquivo.csv`                                  |
 | Shapefile          | `arquivo.shp` (use os arquivos `.shp/.dbf/...` juntos na mesma pasta) |
-| Pasta              | pasta contendo um `.shp` ou `.csv`             |
-| ZIP                | `.zip` com o shapefile/CSV dentro              |
+| Só a tabela (.dbf) | `arquivo.dbf` (lê apenas os atributos, sem geometria) |
+| Pasta              | pasta contendo um `.shp`, `.dbf` ou `.csv`     |
+| ZIP / RAR          | `.zip` ou `.rar` com o shapefile/CSV dentro    |
 
 ## Como usar
 
