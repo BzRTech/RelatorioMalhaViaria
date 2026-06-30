@@ -397,6 +397,23 @@ def filtrar_trecho_1(df, col_map):
     return df.copy()
 
 
+# Valores de BAIRRO que não são bairros reais (placeholders) - excluídos das
+# análises por bairro para não "competir" com os bairros de verdade.
+PLACEHOLDERS_BAIRRO = {
+    "NAO INFORMADO", "SEM DELIMITACAO", "SEM DENOMINACAO",
+    "SEM BAIRRO", "NAO DELIMITADO", "SEM DELIMITACAO DE BAIRRO",
+}
+
+
+def filtrar_bairros_validos(df, col_map):
+    """Remove trechos cujo BAIRRO é um placeholder (não informado/sem delimitação)."""
+    bairro = col_map.get("bairro")
+    if not (bairro and bairro in df.columns):
+        return df
+    chaves = df[bairro].map(_chave_normalizada)
+    return df[~chaves.isin(PLACEHOLDERS_BAIRRO)]
+
+
 def contar_vias_unicas(df, col_map):
     """Conta vias (logradouros) únicas no município (considerando trecho = 1).
 
@@ -513,6 +530,7 @@ def ranking_bairro_sem_nome(df, col_map, top=10):
     if not (bairro and bairro in df.columns and "_SEM_NOME" in df.columns):
         return None
 
+    df = filtrar_bairros_validos(df, col_map)  # ignora bairros placeholder
     sem = df[df["_SEM_NOME"]].groupby(bairro).size()
     tab = pd.DataFrame({"Trechos sem denominação": sem.astype(int)})
     tab = tab[tab["Trechos sem denominação"] > 0]
@@ -563,7 +581,9 @@ def gerar_relatorio(df, col_map, nome_municipio):
     ]:
         coluna = col_map.get(campo)
         if coluna and coluna in df.columns:
-            rel[chave] = distribuicao_percentual(df, col_map, coluna)
+            # No por bairro, ignora os trechos sem bairro delimitado
+            base = filtrar_bairros_validos(df, col_map) if campo == "bairro" else df
+            rel[chave] = distribuicao_percentual(base, col_map, coluna)
 
     # Top 10 vias mais longas (extensão em km + % da extensão total)
     if col_map.get("via") and comp and comp in df.columns:
@@ -656,6 +676,35 @@ def _novo_fig(figsize=(12, 7)):
     return fig
 
 
+# Legenda discreta (rodapé) de cada gráfico: explica a base do número
+CAPTIONS_GRAFICOS = {
+    "fig_01_setores.png": "Participação na extensão da malha · km do setor ÷ km total",
+    "fig_02_bairros.png": "Participação na extensão · km do bairro ÷ km total (exclui trechos sem bairro delimitado)",
+    "fig_03_status.png": "Participação na extensão (km) · uma via pode ter trechos de status diferentes",
+    "fig_04_pavimentacao.png": "Participação na extensão (km) · uma via pode ter trechos de tipos diferentes",
+    "fig_05_setor_status.png": "Composição por extensão · cada faixa = km do setor+status ÷ km total da malha",
+    "fig_06_heatmap_setor_pavimentacao.png": "Cada célula = % da extensão total · km da combinação ÷ km total",
+    "fig_07_denominacao.png": "% das vias distintas (cada logradouro conta 1) · por extensão a fração sem nome é menor",
+    "fig_08_bairros_sem_denominacao.png": "Quantidade de trechos (segmentos) sem nome · equivale à seleção 'SEM NOME' no QGIS",
+    "fig_09_sem_nome_pavimentacao.png": "% de trechos sem nome dentro de cada tipo de pavimentação",
+}
+
+
+def _salvar_grafico(fig, nome_arquivo, pasta):
+    """Adiciona a legenda discreta (se houver) e salva o gráfico."""
+    legenda = CAPTIONS_GRAFICOS.get(nome_arquivo)
+    if legenda:
+        fig.tight_layout(rect=[0, 0.055, 1, 1])
+        fig.text(0.5, 0.02, legenda, ha="center", va="center",
+                 fontsize=8.5, style="italic", color="#8A8A8A")
+    else:
+        fig.tight_layout()
+    destino = os.path.join(pasta, nome_arquivo)
+    fig.savefig(destino, dpi=300, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    return destino
+
+
 def grafico_barra_pizza(tabela, titulo, nome_arquivo, pasta, cores=None):
     """Gera barras horizontais (%) + pizza (%) lado a lado."""
     dados = tabela["% da Extensão"].sort_values(ascending=True)
@@ -701,11 +750,7 @@ def grafico_barra_pizza(tabela, titulo, nome_arquivo, pasta, cores=None):
         at.set_color("white")
         at.set_fontweight("bold")
 
-    plt.tight_layout()
-    destino = os.path.join(pasta, nome_arquivo)
-    plt.savefig(destino, dpi=300, bbox_inches="tight", facecolor="white")
-    plt.close()
-    return destino
+    return _salvar_grafico(fig, nome_arquivo, pasta)
 
 
 def grafico_barra_simples(tabela, titulo, nome_arquivo, pasta, top=15):
@@ -733,11 +778,7 @@ def grafico_barra_simples(tabela, titulo, nome_arquivo, pasta, top=15):
         else:
             rotulos.append(formatar_pct(v, 2))
     ax.bar_label(bars, padding=4, labels=rotulos, fontweight="bold", fontsize=9, color="#2C2C2C")
-    plt.tight_layout()
-    destino = os.path.join(pasta, nome_arquivo)
-    plt.savefig(destino, dpi=300, bbox_inches="tight", facecolor="white")
-    plt.close()
-    return destino
+    return _salvar_grafico(fig, nome_arquivo, pasta)
 
 
 def grafico_empilhado_pct(df, col_map, linha, coluna, titulo, nome_arquivo, pasta):
@@ -762,11 +803,7 @@ def grafico_empilhado_pct(df, col_map, linha, coluna, titulo, nome_arquivo, past
     ax.grid(axis="y", alpha=0.3, color="#9E9E9E")
     ax.set_facecolor("#FAFAFA")
     plt.xticks(rotation=45, ha="right")
-    plt.tight_layout()
-    destino = os.path.join(pasta, nome_arquivo)
-    plt.savefig(destino, dpi=300, bbox_inches="tight", facecolor="white")
-    plt.close()
-    return destino
+    return _salvar_grafico(fig, nome_arquivo, pasta)
 
 
 def grafico_heatmap_pct(df, col_map, linha, coluna, titulo, nome_arquivo, pasta):
@@ -793,11 +830,7 @@ def grafico_heatmap_pct(df, col_map, linha, coluna, titulo, nome_arquivo, pasta)
     ax.set_ylabel(col_map[linha], fontsize=12, fontweight="bold", color="#2C2C2C")
     plt.xticks(rotation=45, ha="right")
     plt.yticks(rotation=0)
-    plt.tight_layout()
-    destino = os.path.join(pasta, nome_arquivo)
-    plt.savefig(destino, dpi=300, bbox_inches="tight", facecolor="white")
-    plt.close()
-    return destino
+    return _salvar_grafico(fig, nome_arquivo, pasta)
 
 
 def grafico_denominacao(tab_geral, nome_arquivo, pasta):
@@ -821,11 +854,7 @@ def grafico_denominacao(tab_geral, nome_arquivo, pasta):
     for at in autotexts:
         at.set_color("white")
         at.set_fontweight("bold")
-    plt.tight_layout()
-    destino = os.path.join(pasta, nome_arquivo)
-    plt.savefig(destino, dpi=300, bbox_inches="tight", facecolor="white")
-    plt.close()
-    return destino
+    return _salvar_grafico(fig, nome_arquivo, pasta)
 
 
 def grafico_ranking_qtd(tab, coluna_valor, titulo, xlabel, nome_arquivo, pasta):
@@ -845,11 +874,7 @@ def grafico_ranking_qtd(tab, coluna_valor, titulo, xlabel, nome_arquivo, pasta):
     ax.set_xlim(0, max(dados.values) * 1.15 if n else 1)
     ax.bar_label(bars, padding=4, labels=[formatar_inteiro_br(v) for v in dados.values],
                  fontweight="bold", fontsize=10, color="#2C2C2C")
-    plt.tight_layout()
-    destino = os.path.join(pasta, nome_arquivo)
-    plt.savefig(destino, dpi=300, bbox_inches="tight", facecolor="white")
-    plt.close()
-    return destino
+    return _salvar_grafico(fig, nome_arquivo, pasta)
 
 
 def grafico_sem_nome_pct(tab, titulo, nome_arquivo, pasta):
@@ -870,11 +895,7 @@ def grafico_sem_nome_pct(tab, titulo, nome_arquivo, pasta):
     ax.set_xlim(0, max(dados.values) * 1.18 if len(dados) else 1)
     ax.bar_label(bars, padding=4, labels=[formatar_pct(v, 1) for v in dados.values],
                  fontweight="bold", fontsize=10, color="#2C2C2C")
-    plt.tight_layout()
-    destino = os.path.join(pasta, nome_arquivo)
-    plt.savefig(destino, dpi=300, bbox_inches="tight", facecolor="white")
-    plt.close()
-    return destino
+    return _salvar_grafico(fig, nome_arquivo, pasta)
 
 
 def gerar_graficos(df, rel, col_map, pasta_graficos):
@@ -951,8 +972,9 @@ def gerar_graficos(df, rel, col_map, pasta_graficos):
         try:
             import plotly.express as px
             comp = col_map["comprimento"]
-            total_m = df[comp].sum() or 1
-            cross = df.groupby([col_map["setor"], col_map["bairro"]])[comp].sum().reset_index()
+            df_tm = filtrar_bairros_validos(df, col_map)  # ignora bairros placeholder
+            total_m = df_tm[comp].sum() or 1
+            cross = df_tm.groupby([col_map["setor"], col_map["bairro"]])[comp].sum().reset_index()
             cross.columns = ["Setor", "Bairro", "Extensao_m"]
             cross["% da Extensão"] = (cross["Extensao_m"] / total_m * 100).round(2)
             fig = px.treemap(
@@ -1122,57 +1144,6 @@ def _pagina_tabela(pdf, titulo, df_show, municipio, rodape_extra=None):
     plt.close()
 
 
-def _paginas_explicacao(pdf, graficos, municipio):
-    """Adiciona ao PDF as páginas 'Como ler os gráficos'."""
-    import textwrap
-    presentes = {os.path.basename(g) for g in graficos}
-    entradas = [(t, m, b) for arq, t, m, b in EXPLICACOES_GRAFICOS if arq in presentes]
-    if not entradas:
-        return
-    ano = datetime.now().strftime("%Y")
-
-    def nova_pagina():
-        f = plt.figure(figsize=(8.5, 11))
-        f.patch.set_facecolor("white")
-        f.text(0.5, 0.95, "COMO LER OS GRÁFICOS", ha="center", fontsize=16,
-               fontweight="bold", color="#2C2C2C")
-        f.text(0.5, 0.93, "─" * 60, ha="center", fontsize=10, color="#FFD700")
-        return f, 0.89
-
-    fig, y = nova_pagina()
-    # Introdução
-    for linha in textwrap.wrap(INTRO_EXPLICACAO, 92):
-        fig.text(0.07, y, linha, ha="left", fontsize=9.5, color="#424242")
-        y -= 0.021
-    y -= 0.02
-
-    for titulo, mostra, base in entradas:
-        linhas_mostra = textwrap.wrap(mostra, 95)
-        linhas_base = textwrap.wrap("Base: " + base, 95)
-        necessario = 0.030 + 0.019 * (len(linhas_mostra) + len(linhas_base)) + 0.02
-        if y - necessario < 0.06:
-            fig.text(0.5, 0.03, f"{municipio} - {ano}", ha="center", fontsize=9,
-                     color="#9E9E9E", style="italic")
-            pdf.savefig(fig, bbox_inches="tight", facecolor="white")
-            plt.close()
-            fig, y = nova_pagina()
-
-        fig.text(0.07, y, titulo, ha="left", fontsize=11, fontweight="bold", color="#2C2C2C")
-        y -= 0.027
-        for linha in linhas_mostra:
-            fig.text(0.09, y, linha, ha="left", fontsize=9.5, color="#424242")
-            y -= 0.019
-        for linha in linhas_base:
-            fig.text(0.09, y, linha, ha="left", fontsize=9.5, color="#757575")
-            y -= 0.019
-        y -= 0.016
-
-    fig.text(0.5, 0.03, f"{municipio} - {ano}", ha="center", fontsize=9,
-             color="#9E9E9E", style="italic")
-    pdf.savefig(fig, bbox_inches="tight", facecolor="white")
-    plt.close()
-
-
 def exportar_pdf(rel, graficos, caminho, logo_path=None):
     """Gera o relatório PDF (capa + tabelas em % + gráficos + explicações)."""
     municipio = rel["municipio"]
@@ -1296,9 +1267,6 @@ def exportar_pdf(rel, graficos, caminho, logo_path=None):
                 plt.close()
             except Exception as e:  # noqa: BLE001
                 print(f"   (gráfico não incluído no PDF: {img_file}: {e})")
-
-        # Explicação de cada gráfico (ao final)
-        _paginas_explicacao(pdf, graficos, municipio)
 
 
 # ==========================================================================

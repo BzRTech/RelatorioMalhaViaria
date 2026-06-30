@@ -45,8 +45,14 @@ A unidade foi escolhida pelo que cada gráfico realmente mede:
 | Bairros sem denominação | **qtd de trechos** | igual à seleção "SEM NOME" no QGIS; mede o tamanho da lacuna |
 | Sem denominação por pavimentação | **% de trechos** | fração de trechos sem nome em cada tipo |
 
-O relatório traz, ao final, uma seção **"Como ler os gráficos"** com essa
-explicação para cada figura (também na aba **Notas** do Excel).
+Cada gráfico traz uma **legenda discreta no rodapé** explicando a base do número
+(ex.: *"Participação na extensão da malha · km do setor ÷ km total"*). A mesma
+explicação, em forma de tabela, fica na aba **Notas** do Excel.
+
+> **Bairros sem delimitação:** trechos cujo bairro é um placeholder
+> (`SEM DELIMITACAO`, `NÃO INFORMADO` etc.) são **excluídos das análises por
+> bairro** (Top Bairros, sem denominação por bairro e treemap), para não competir
+> com os bairros reais. Eles continuam contando nos totais gerais e por setor.
 
 ### Limpeza automática de categorias
 
