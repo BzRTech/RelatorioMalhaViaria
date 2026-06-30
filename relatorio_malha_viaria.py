@@ -430,21 +430,18 @@ def contar_vias_unicas(df, col_map):
 # CÁLCULO DOS QUANTITATIVOS (EM PORCENTAGEM)
 # ==========================================================================
 
-def distribuicao_percentual(df, col_map, coluna_grupo, contar_logradouros=False):
+def distribuicao_percentual(df, col_map, coluna_grupo):
     """
     Monta uma tabela de distribuição com TOTAIS EM PORCENTAGEM.
 
     Colunas geradas (todas somam 100%):
       - % da Extensão  -> participação na extensão total da malha (km)
       - % dos Trechos  -> participação na quantidade de trechos
-
-    Quando contar_logradouros=True, inclui também a contagem de LOGRADOUROS
-    (ruas distintas) por categoria, classificando cada via pelo seu trecho
-    principal (trecho 1). Só faz sentido para status/pavimentação - para
-    setor/bairro a contagem de vias é ambígua (a via cruza fronteiras).
+    O comprimento usa TODOS os trechos. Não conta vias por grupo de
+    propósito: como uma via pode cruzar vários grupos, a contagem seria
+    ambígua; as medidas exatas são a extensão (km) e os trechos.
     """
     comp = col_map.get("comprimento")
-    via = col_map.get("via")
     grupo = df.groupby(coluna_grupo)
 
     tabela = pd.DataFrame(index=sorted(grupo.groups.keys()))
@@ -458,12 +455,6 @@ def distribuicao_percentual(df, col_map, coluna_grupo, contar_logradouros=False)
         tabela["_extensao_m"] = grupo[comp].sum()
     else:
         tabela["_extensao_m"] = tabela["_trechos"]  # fallback
-
-    # Logradouros (ruas distintas) por categoria, via trecho principal
-    if contar_logradouros and via and via in df.columns:
-        df_t1 = filtrar_trecho_1(df, col_map)
-        vias = df_t1.groupby(coluna_grupo)[via].nunique()
-        tabela["_vias"] = vias.reindex(tabela.index, fill_value=0).astype(int)
 
     # Percentuais (somam 100%)
     total_ext = tabela["_extensao_m"].sum() or 1
@@ -597,10 +588,7 @@ def gerar_relatorio(df, col_map, nome_municipio):
         if coluna and coluna in df.columns:
             # No por bairro, ignora os trechos sem bairro delimitado
             base = filtrar_bairros_validos(df, col_map) if campo == "bairro" else df
-            # Logradouros (qtd) só em status e pavimentação
-            rel[chave] = distribuicao_percentual(
-                base, col_map, coluna,
-                contar_logradouros=(campo in ("status", "pavimentacao")))
+            rel[chave] = distribuicao_percentual(base, col_map, coluna)
 
     # Top 10 vias mais longas (extensão em km + % da extensão total)
     if col_map.get("via") and comp and comp in df.columns:
@@ -645,16 +633,14 @@ def tabela_exibicao(tabela_interna):
     COMPRIMENTO (km) e as porcentagens lado a lado. A linha de TOTAL traz
     a extensão total e 100% nas colunas de porcentagem.
 
-    Inclui "Logradouros (qtd)" apenas quando a tabela interna trouxer essa
-    contagem (status/pavimentação). Para setor/bairro a contagem de vias é
-    omitida de propósito (uma via cruza vários grupos -> ambígua).
+    Não inclui contagem de VIAS de propósito: como uma via pode cruzar
+    vários setores/bairros (ou ter trechos de status/tipos diferentes),
+    contar "vias" por grupo é ambíguo. A medida exata é a extensão (km) e a
+    quantidade de trechos.
 
-    Colunas: [Logradouros (qtd)], Extensão (km), % da Extensão, Trechos (qtd), % dos Trechos
+    Colunas: Extensão (km), % da Extensão, Trechos (qtd), % dos Trechos
     """
-    tem_log = "_vias" in tabela_interna.columns
     out = pd.DataFrame(index=tabela_interna.index)
-    if tem_log:
-        out["Logradouros (qtd)"] = tabela_interna["_vias"].astype(int)
     out["Extensão (km)"] = (tabela_interna["_extensao_m"] / 1000).round(3)
     out["% da Extensão"] = tabela_interna["% da Extensão"]
     out["Trechos (qtd)"] = tabela_interna["_trechos"].astype(int)
@@ -662,17 +648,12 @@ def tabela_exibicao(tabela_interna):
 
     # Linha de total: km somado; porcentagens = 100% por definição
     # (evita artefatos de arredondamento tipo 100,01%).
-    total = {
+    out.loc["TOTAL"] = {
         "Extensão (km)": round(out["Extensão (km)"].sum(), 3),
         "% da Extensão": 100.0,
         "Trechos (qtd)": int(out["Trechos (qtd)"].sum()),
         "% dos Trechos": 100.0,
     }
-    if tem_log:
-        # soma das categorias (pode passar levemente do total de vias quando
-        # uma rua tem trechos de tipos diferentes)
-        total["Logradouros (qtd)"] = int(out["Logradouros (qtd)"].sum())
-    out.loc["TOTAL"] = total
     return out
 
 
@@ -1252,9 +1233,6 @@ def exportar_pdf(rel, graficos, caminho, logo_path=None):
                 tab = tabela_exibicao(rel[chave])
                 total = len(tab) - 1  # tira a linha TOTAL
                 rodape = None
-                if "Logradouros (qtd)" in tab.columns:
-                    rodape = ("Logradouros: ruas distintas pelo trecho principal; uma rua "
-                              "com trechos de tipos diferentes pode contar em mais de uma categoria.")
                 if total > 24:
                     # mantém TOTAL no fim
                     corpo = formatar_tabela_br(tab.iloc[:-1]).head(24)
