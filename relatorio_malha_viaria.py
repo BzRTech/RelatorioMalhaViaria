@@ -110,7 +110,7 @@ EXPLICACOES_GRAFICOS = [
     ("fig_08_bairros_sem_denominacao.png", "Gráfico 8 - Bairros com mais trechos sem denominação",
      "Ranking dos bairros com mais trechos sem nome, para priorizar a denominação.",
      "QUANTIDADE: contagem de TRECHOS (segmentos) sem nome em cada bairro - "
-     "mesma contagem da seleção de feições 'SEM NOME' no QGIS (não é extensão)."),
+     "contagem direta dos trechos sem nome na tabela de dados (não é extensão)."),
     ("fig_09_sem_nome_pavimentacao.png", "Gráfico 9 - Sem denominação por Pavimentação",
      "Dentro de cada tipo de pavimentação, quanto está sem nome.",
      "% de TRECHOS: trechos sem nome do tipo ÷ total de trechos do tipo "
@@ -523,7 +523,7 @@ def ranking_bairro_sem_nome(df, col_map, top=10):
     """Bairros com mais TRECHOS sem denominação.
 
     Conta os trechos (segmentos) sem nome por bairro - mesma contagem que se
-    obtém ao selecionar as feições 'SEM NOME' no QGIS. Reflete o tamanho real
+    obtém contando os trechos sem nome direto na tabela. Reflete o tamanho real
     da lacuna cadastral (um logradouro comprido tem vários trechos).
     """
     bairro = col_map.get("bairro")
@@ -685,7 +685,7 @@ CAPTIONS_GRAFICOS = {
     "fig_05_setor_status.png": "Composição por extensão · cada faixa = km do setor+status ÷ km total da malha",
     "fig_06_heatmap_setor_pavimentacao.png": "Cada célula = % da extensão total · km da combinação ÷ km total",
     "fig_07_denominacao.png": "% das vias distintas (cada logradouro conta 1) · por extensão a fração sem nome é menor",
-    "fig_08_bairros_sem_denominacao.png": "Quantidade de trechos (segmentos) sem nome · equivale à seleção 'SEM NOME' no QGIS",
+    "fig_08_bairros_sem_denominacao.png": "Quantidade de trechos (segmentos) sem nome · contagem direta na tabela de dados",
     "fig_09_sem_nome_pavimentacao.png": "% de trechos sem nome dentro de cada tipo de pavimentação",
 }
 

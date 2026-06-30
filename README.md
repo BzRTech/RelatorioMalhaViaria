@@ -42,7 +42,7 @@ A unidade foi escolhida pelo que cada gráfico realmente mede:
 | Setor, Bairro, Setor×Status, Heatmap, Treemap | **% da extensão (km)** | distribuição territorial — cada metro pertence a um só local; contar vias é ambíguo (a via cruza fronteiras) |
 | Status, Pavimentação | **% da extensão (km)** | variam ao longo da via (uma rua pode ser meio pavimentada) |
 | Denominação geral | **% das vias distintas** | "ter nome" é propriedade do logradouro inteiro |
-| Bairros sem denominação | **qtd de trechos** | igual à seleção "SEM NOME" no QGIS; mede o tamanho da lacuna |
+| Bairros sem denominação | **qtd de trechos** | contagem direta dos trechos sem nome na tabela; mede o tamanho da lacuna |
 | Sem denominação por pavimentação | **% de trechos** | fração de trechos sem nome em cada tipo |
 
 Cada gráfico traz uma **legenda discreta no rodapé** explicando a base do número
@@ -76,7 +76,7 @@ Além das distribuições, o relatório identifica as **vias sem denominação**
   nome), pois "ter nome" é propriedade do logradouro inteiro; a extensão (km)
   aparece ao lado como referência
 - **Bairros com mais trechos sem denominação** — contagem de trechos (segmentos)
-  sem nome por bairro, igual à seleção de feições "SEM NOME" no QGIS; reflete o
+  sem nome por bairro, por contagem direta na tabela de dados; reflete o
   tamanho real da lacuna cadastral
 - **Sem denominação por pavimentação** — % de trechos sem nome em cada tipo
 
