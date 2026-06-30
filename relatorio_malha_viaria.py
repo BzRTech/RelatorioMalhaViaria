@@ -430,18 +430,21 @@ def contar_vias_unicas(df, col_map):
 # CÁLCULO DOS QUANTITATIVOS (EM PORCENTAGEM)
 # ==========================================================================
 
-def distribuicao_percentual(df, col_map, coluna_grupo):
+def distribuicao_percentual(df, col_map, coluna_grupo, contar_logradouros=False):
     """
     Monta uma tabela de distribuição com TOTAIS EM PORCENTAGEM.
 
     Colunas geradas (todas somam 100%):
       - % da Extensão  -> participação na extensão total da malha (km)
       - % dos Trechos  -> participação na quantidade de trechos
-    O comprimento usa TODOS os trechos. Não conta vias por grupo de
-    propósito: como uma via pode cruzar vários grupos, a contagem seria
-    ambígua; as medidas exatas são a extensão (km) e os trechos.
+
+    Quando contar_logradouros=True, inclui também a contagem de LOGRADOUROS
+    (ruas distintas) por categoria, classificando cada via pelo seu trecho
+    principal (trecho 1). Só faz sentido para status/pavimentação - para
+    setor/bairro a contagem de vias é ambígua (a via cruza fronteiras).
     """
     comp = col_map.get("comprimento")
+    via = col_map.get("via")
     grupo = df.groupby(coluna_grupo)
 
     tabela = pd.DataFrame(index=sorted(grupo.groups.keys()))
@@ -455,6 +458,12 @@ def distribuicao_percentual(df, col_map, coluna_grupo):
         tabela["_extensao_m"] = grupo[comp].sum()
     else:
         tabela["_extensao_m"] = tabela["_trechos"]  # fallback
+
+    # Logradouros (ruas distintas) por categoria, via trecho principal
+    if contar_logradouros and via and via in df.columns:
+        df_t1 = filtrar_trecho_1(df, col_map)
+        vias = df_t1.groupby(coluna_grupo)[via].nunique()
+        tabela["_vias"] = vias.reindex(tabela.index, fill_value=0).astype(int)
 
     # Percentuais (somam 100%)
     total_ext = tabela["_extensao_m"].sum() or 1
@@ -519,12 +528,12 @@ def analise_denominacao_geral(df, col_map):
     return tab
 
 
-def ranking_bairro_sem_nome(df, col_map, top=10):
+def ranking_bairro_sem_nome(df, col_map, top=None):
     """Bairros com mais LOGRADOUROS (ruas distintas) sem denominação.
 
     Conta cada rua sem nome UMA vez por bairro (uma rua comprida partida em
     vários trechos conta 1 só). Mede quantos logradouros diferentes precisam de
-    denominação em cada bairro.
+    denominação em cada bairro. top=None devolve TODOS os bairros.
     """
     bairro = col_map.get("bairro")
     via = col_map.get("via")
@@ -540,7 +549,7 @@ def ranking_bairro_sem_nome(df, col_map, top=10):
     tab = pd.DataFrame({"Logradouros sem denominação": sem.astype(int)})
     tab = tab[tab["Logradouros sem denominação"] > 0]
     tab = tab.sort_values("Logradouros sem denominação", ascending=False)
-    return tab.head(top)
+    return tab if top is None else tab.head(top)
 
 
 def sem_nome_por_categoria(df, col_map, campo):
@@ -588,7 +597,10 @@ def gerar_relatorio(df, col_map, nome_municipio):
         if coluna and coluna in df.columns:
             # No por bairro, ignora os trechos sem bairro delimitado
             base = filtrar_bairros_validos(df, col_map) if campo == "bairro" else df
-            rel[chave] = distribuicao_percentual(base, col_map, coluna)
+            # Logradouros (qtd) só em status e pavimentação
+            rel[chave] = distribuicao_percentual(
+                base, col_map, coluna,
+                contar_logradouros=(campo in ("status", "pavimentacao")))
 
     # Top 10 vias mais longas (extensão em km + % da extensão total)
     if col_map.get("via") and comp and comp in df.columns:
@@ -612,7 +624,7 @@ def gerar_relatorio(df, col_map, nome_municipio):
             rel["pct_sem_nome_ext"] = geral.loc["Sem denominação", "% da Extensão"]
             rel["pct_sem_nome_vias"] = geral.loc["Sem denominação", "% das Vias"]
 
-        r_sem = ranking_bairro_sem_nome(df, col_map, top=10)
+        r_sem = ranking_bairro_sem_nome(df, col_map, top=None)  # todos os bairros
         if r_sem is not None and not r_sem.empty:
             rel["ranking_bairro_sem_nome"] = r_sem
 
@@ -633,13 +645,16 @@ def tabela_exibicao(tabela_interna):
     COMPRIMENTO (km) e as porcentagens lado a lado. A linha de TOTAL traz
     a extensão total e 100% nas colunas de porcentagem.
 
-    Não inclui contagem de VIAS de propósito: como uma via pode cruzar
-    vários setores/bairros, contar "vias" por grupo é ambíguo. A medida
-    exata é a extensão (km) e a quantidade de trechos.
+    Inclui "Logradouros (qtd)" apenas quando a tabela interna trouxer essa
+    contagem (status/pavimentação). Para setor/bairro a contagem de vias é
+    omitida de propósito (uma via cruza vários grupos -> ambígua).
 
-    Colunas: Extensão (km), % da Extensão, Trechos (qtd), % dos Trechos
+    Colunas: [Logradouros (qtd)], Extensão (km), % da Extensão, Trechos (qtd), % dos Trechos
     """
+    tem_log = "_vias" in tabela_interna.columns
     out = pd.DataFrame(index=tabela_interna.index)
+    if tem_log:
+        out["Logradouros (qtd)"] = tabela_interna["_vias"].astype(int)
     out["Extensão (km)"] = (tabela_interna["_extensao_m"] / 1000).round(3)
     out["% da Extensão"] = tabela_interna["% da Extensão"]
     out["Trechos (qtd)"] = tabela_interna["_trechos"].astype(int)
@@ -647,12 +662,17 @@ def tabela_exibicao(tabela_interna):
 
     # Linha de total: km somado; porcentagens = 100% por definição
     # (evita artefatos de arredondamento tipo 100,01%).
-    out.loc["TOTAL"] = {
+    total = {
         "Extensão (km)": round(out["Extensão (km)"].sum(), 3),
         "% da Extensão": 100.0,
         "Trechos (qtd)": int(out["Trechos (qtd)"].sum()),
         "% dos Trechos": 100.0,
     }
+    if tem_log:
+        # soma das categorias (pode passar levemente do total de vias quando
+        # uma rua tem trechos de tipos diferentes)
+        total["Logradouros (qtd)"] = int(out["Logradouros (qtd)"].sum())
+    out.loc["TOTAL"] = total
     return out
 
 
@@ -956,8 +976,9 @@ def gerar_graficos(df, rel, col_map, pasta_graficos):
             gerados.append(f)
 
     if "ranking_bairro_sem_nome" in rel:
+        # gráfico foca nos 15 maiores (a tabela do PDF traz todos)
         f = grafico_ranking_qtd(
-            rel["ranking_bairro_sem_nome"], "Logradouros sem denominação",
+            rel["ranking_bairro_sem_nome"].head(15), "Logradouros sem denominação",
             "Bairros com mais logradouros sem denominação",
             "Logradouros sem denominação (qtd)",
             "fig_08_bairros_sem_denominacao.png", pasta_graficos)
@@ -1107,13 +1128,15 @@ def _pagina_tabela(pdf, titulo, df_show, municipio, rodape_extra=None):
     soma = sum(larguras)
     col_widths = [w / soma for w in larguras]
 
-    # Fonte adaptativa ao maior nome e à quantidade de colunas
+    # Fonte adaptativa ao maior nome, nº de colunas e nº de linhas
     maior_nome = max((len(str(linha[0])) for linha in data), default=10)
     fonte = 9
     if n_cols > 5 or maior_nome > 22:
         fonte = 8
     if maior_nome > 32 or n_cols > 7:
         fonte = 7
+    if n_rows > 16:
+        fonte = min(fonte, 8)
 
     table_ax = fig.add_axes([0.04, 0.10, 0.92, 0.80])
     table_ax.axis("off")
@@ -1121,7 +1144,9 @@ def _pagina_tabela(pdf, titulo, df_show, municipio, rodape_extra=None):
                          colWidths=col_widths)
     tbl.auto_set_font_size(False)
     tbl.set_fontsize(fonte)
-    tbl.scale(1, 1.7)
+    # Altura das linhas adaptativa: com muitas linhas, comprime para caber
+    escala_y = 1.7 if n_rows <= 14 else max(1.0, 1.7 * 14 / n_rows)
+    tbl.scale(1, escala_y)
 
     for j in range(n_cols):
         tbl[(0, j)].set_facecolor("#FFD700")
@@ -1227,6 +1252,9 @@ def exportar_pdf(rel, graficos, caminho, logo_path=None):
                 tab = tabela_exibicao(rel[chave])
                 total = len(tab) - 1  # tira a linha TOTAL
                 rodape = None
+                if "Logradouros (qtd)" in tab.columns:
+                    rodape = ("Logradouros: ruas distintas pelo trecho principal; uma rua "
+                              "com trechos de tipos diferentes pode contar em mais de uma categoria.")
                 if total > 24:
                     # mantém TOTAL no fim
                     corpo = formatar_tabela_br(tab.iloc[:-1]).head(24)

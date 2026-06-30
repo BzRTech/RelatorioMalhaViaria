@@ -20,6 +20,8 @@ Isso evita confusão para quem lê o relatório. As tabelas mostram, lado a lado
 - **Extensão (km)** — comprimento total da categoria, em quilômetros
 - **% da Extensão** — quanto cada categoria representa da extensão total
 - **Trechos (qtd)** e **% dos Trechos** — quantidade e participação dos trechos
+- **Logradouros (qtd)** — *apenas em Status e Pavimentação*: número de ruas
+  distintas (cada via classificada pelo seu trecho principal)
 - A linha de **TOTAL** traz a extensão somada e **100%** nas colunas de porcentagem
 
 > **Sobre a "quantidade de vias":** o **total geral de vias** do município
