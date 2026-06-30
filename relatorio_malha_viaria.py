@@ -107,10 +107,10 @@ EXPLICACOES_GRAFICOS = [
      "% das VIAS distintas: cada logradouro conta 1, pois ter nome é propriedade "
      "do logradouro inteiro (não varia ao longo da via). Para referência, por "
      "extensão a fração sem nome é menor - veja o Quadro Resumo."),
-    ("fig_08_bairros_sem_denominacao.png", "Gráfico 8 - Bairros com mais trechos sem denominação",
-     "Ranking dos bairros com mais trechos sem nome, para priorizar a denominação.",
-     "QUANTIDADE: contagem de TRECHOS (segmentos) sem nome em cada bairro - "
-     "contagem direta dos trechos sem nome na tabela de dados (não é extensão)."),
+    ("fig_08_bairros_sem_denominacao.png", "Gráfico 8 - Bairros com mais logradouros sem denominação",
+     "Ranking dos bairros com mais ruas sem nome, para priorizar a denominação.",
+     "QUANTIDADE: contagem de LOGRADOUROS (ruas distintas) sem nome em cada "
+     "bairro - cada rua conta 1 vez, mesmo que tenha vários trechos (não é extensão)."),
     ("fig_09_sem_nome_pavimentacao.png", "Gráfico 9 - Sem denominação por Pavimentação",
      "Dentro de cada tipo de pavimentação, quanto está sem nome.",
      "% de TRECHOS: trechos sem nome do tipo ÷ total de trechos do tipo "
@@ -520,21 +520,26 @@ def analise_denominacao_geral(df, col_map):
 
 
 def ranking_bairro_sem_nome(df, col_map, top=10):
-    """Bairros com mais TRECHOS sem denominação.
+    """Bairros com mais LOGRADOUROS (ruas distintas) sem denominação.
 
-    Conta os trechos (segmentos) sem nome por bairro - mesma contagem que se
-    obtém contando os trechos sem nome direto na tabela. Reflete o tamanho real
-    da lacuna cadastral (um logradouro comprido tem vários trechos).
+    Conta cada rua sem nome UMA vez por bairro (uma rua comprida partida em
+    vários trechos conta 1 só). Mede quantos logradouros diferentes precisam de
+    denominação em cada bairro.
     """
     bairro = col_map.get("bairro")
+    via = col_map.get("via")
     if not (bairro and bairro in df.columns and "_SEM_NOME" in df.columns):
         return None
 
     df = filtrar_bairros_validos(df, col_map)  # ignora bairros placeholder
-    sem = df[df["_SEM_NOME"]].groupby(bairro).size()
-    tab = pd.DataFrame({"Trechos sem denominação": sem.astype(int)})
-    tab = tab[tab["Trechos sem denominação"] > 0]
-    tab = tab.sort_values("Trechos sem denominação", ascending=False)
+    df_sem = df[df["_SEM_NOME"]]
+    if via and via in df.columns:
+        sem = df_sem.groupby(bairro)[via].nunique()
+    else:
+        sem = df_sem.groupby(bairro).size()
+    tab = pd.DataFrame({"Logradouros sem denominação": sem.astype(int)})
+    tab = tab[tab["Logradouros sem denominação"] > 0]
+    tab = tab.sort_values("Logradouros sem denominação", ascending=False)
     return tab.head(top)
 
 
@@ -685,7 +690,7 @@ CAPTIONS_GRAFICOS = {
     "fig_05_setor_status.png": "Composição por extensão · cada faixa = km do setor+status ÷ km total da malha",
     "fig_06_heatmap_setor_pavimentacao.png": "Cada célula = % da extensão total · km da combinação ÷ km total",
     "fig_07_denominacao.png": "% das vias distintas (cada logradouro conta 1) · por extensão a fração sem nome é menor",
-    "fig_08_bairros_sem_denominacao.png": "Quantidade de trechos (segmentos) sem nome · contagem direta na tabela de dados",
+    "fig_08_bairros_sem_denominacao.png": "Quantidade de logradouros (ruas distintas) sem nome · cada rua conta 1 vez",
     "fig_09_sem_nome_pavimentacao.png": "% de trechos sem nome dentro de cada tipo de pavimentação",
 }
 
@@ -952,9 +957,9 @@ def gerar_graficos(df, rel, col_map, pasta_graficos):
 
     if "ranking_bairro_sem_nome" in rel:
         f = grafico_ranking_qtd(
-            rel["ranking_bairro_sem_nome"], "Trechos sem denominação",
-            "Bairros com mais trechos sem denominação",
-            "Trechos sem denominação (qtd)",
+            rel["ranking_bairro_sem_nome"], "Logradouros sem denominação",
+            "Bairros com mais logradouros sem denominação",
+            "Logradouros sem denominação (qtd)",
             "fig_08_bairros_sem_denominacao.png", pasta_graficos)
         if f:
             gerados.append(f)
@@ -1247,7 +1252,7 @@ def exportar_pdf(rel, graficos, caminho, logo_path=None):
         if "ranking_bairro_sem_nome" in rel:
             t = rel["ranking_bairro_sem_nome"].copy()
             t.insert(0, "Ranking", [f"{i}." for i in range(1, len(t) + 1)])
-            _pagina_tabela(pdf, "BAIRROS COM MAIS TRECHOS SEM DENOMINAÇÃO",
+            _pagina_tabela(pdf, "BAIRROS COM MAIS LOGRADOUROS SEM DENOMINAÇÃO",
                            t.reset_index(), municipio)
 
         if "sem_nome_por_pavimentacao" in rel:
