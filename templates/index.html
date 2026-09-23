@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<section class="hero">
+  <p class="chapeu">Relatório técnico</p>
+  <h1>Gerar relatório e apresentação</h1>
+  <p class="lead">Envie a camada de logradouros e receba o PDF, a planilha Excel,
+    os gráficos e a apresentação (.pptx) prontos.</p>
+</section>
+
+<form class="cartao" method="post" action="{{ url_for('gerar') }}" enctype="multipart/form-data" id="form">
+  <label class="campo">
+    <span>Município</span>
+    <input type="text" name="municipio" placeholder="Ex.: Tabira" required autocomplete="off">
+  </label>
+
+  <label class="campo">
+    <span>Dados dos logradouros</span>
+    <div class="drop" id="drop">
+      <input type="file" name="dados" id="dados" multiple required
+             accept=".zip,.rar,.csv,.shp,.dbf,.shx,.prj,.cpg,.sbn,.sbx,.xml">
+      <strong>Clique ou arraste os arquivos aqui</strong>
+      <small id="nomes">Shapefile compactado (.zip), os arquivos .shp + .dbf + .shx juntos, ou um .csv</small>
+    </div>
+  </label>
+
+  <details class="avancado">
+    <summary>Opções</summary>
+    <label class="campo">
+      <span>Logomarca (opcional, .png ou .jpg)</span>
+      <input type="file" name="logo" accept=".png,.jpg,.jpeg">
+      <small>Se não enviar, usa a logomarca da Eixo.</small>
+    </label>
+    <p class="nota">Colunas esperadas: <code>RUA</code>, <code>TRECHO</code>, <code>SETOR</code>,
+      <code>BAIRRO</code>, <code>STATUS</code>, <code>COMP_TRECH</code>, <code>TIPO</code>.</p>
+  </details>
+
+  <button type="submit" class="botao" id="botao">Gerar relatório</button>
+  <div class="carregando" id="carregando" hidden>
+    <span class="spinner"></span>
+    <span>Processando dados, gerando gráficos, PDF e apresentação… isso leva de 20 s a 1 min.</span>
+  </div>
+</form>
+
+<script>
+  const input = document.getElementById('dados');
+  const drop = document.getElementById('drop');
+  const nomes = document.getElementById('nomes');
+  input.addEventListener('change', () => {
+    const lista = [...input.files].map(f => f.name);
+    nomes.textContent = lista.length ? lista.join(', ') : nomes.dataset.padrao;
+    drop.classList.toggle('ok', lista.length > 0);
+  });
+  nomes.dataset.padrao = nomes.textContent;
+  ['dragenter', 'dragover'].forEach(e => drop.addEventListener(e, () => drop.classList.add('sobre')));
+  ['dragleave', 'drop'].forEach(e => drop.addEventListener(e, () => drop.classList.remove('sobre')));
+  document.getElementById('form').addEventListener('submit', () => {
+    document.getElementById('botao').disabled = true;
+    document.getElementById('carregando').hidden = false;
+  });
+</script>
+{% endblock %}

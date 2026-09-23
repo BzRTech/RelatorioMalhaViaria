@@ -1315,7 +1315,7 @@ def descobrir_entrada(arg):
     return caminho
 
 
-def validar_colunas(df, col_map):
+def validar_colunas(df, col_map, log=print):
     """Remove do mapa as colunas que não existem no arquivo e avisa."""
     presentes = {}
     faltando = []
@@ -1325,10 +1325,75 @@ def validar_colunas(df, col_map):
         else:
             faltando.append(nome)
     if faltando:
-        print("⚠️  Colunas não encontradas no CSV (serão ignoradas): "
-              + ", ".join(faltando))
-        print(f"   Colunas disponíveis: {', '.join(df.columns)}")
+        log("⚠️  Colunas não encontradas no arquivo (serão ignoradas): "
+            + ", ".join(faltando))
+        log(f"   Colunas disponíveis: {', '.join(map(str, df.columns))}")
     return presentes
+
+
+# ==========================================================================
+# EXECUÇÃO (usada pela linha de comando e pelo webapp)
+# ==========================================================================
+
+def executar(caminho, nome_municipio, saida, logo_path=None,
+             gerar_pptx=False, log=print):
+    """
+    Roda o relatório completo e devolve um dicionário com o 'rel' calculado e
+    os caminhos dos arquivos gerados (excel, pdf, zip_graficos, pptx).
+    Levanta RuntimeError com mensagem amigável se a entrada for inválida.
+    """
+    log("🔄 Lendo dados...")
+    df, temporarios = carregar_dados(caminho)
+    try:
+        log(f"   ✓ {formatar_inteiro_br(len(df))} registros, {len(df.columns)} colunas")
+
+        col_map = validar_colunas(df, COLUNAS_PADRAO, log=log)
+        if not col_map:
+            raise RuntimeError(
+                "Nenhuma das colunas esperadas foi encontrada no arquivo.\n"
+                f"   Esperadas: {', '.join(COLUNAS_PADRAO.values())}\n"
+                f"   Encontradas: {', '.join(map(str, df.columns))}")
+        df = preparar_dados(df, col_map)
+
+        log("📐 Calculando quantitativos (em porcentagem)...")
+        rel = gerar_relatorio(df, col_map, nome_municipio)
+
+        os.makedirs(saida, exist_ok=True)
+        pasta_graficos = os.path.join(saida, PASTA_GRAFICOS)
+
+        log("📊 Gerando gráficos individuais...")
+        graficos = gerar_graficos(df, rel, col_map, pasta_graficos)
+
+        stamp = datetime.now().strftime("%Y%m%d_%H%M")
+        base = f"{nome_municipio.replace(' ', '_')}_{stamp}"
+        arquivos = {
+            "excel": os.path.join(saida, f"Relatorio_Logradouros_{base}.xlsx"),
+            "pdf": os.path.join(saida, f"Relatorio_Completo_{base}.pdf"),
+        }
+
+        log("📑 Gerando Excel...")
+        exportar_excel(df, rel, col_map, arquivos["excel"], graficos)
+
+        log("📄 Gerando PDF...")
+        logo = logo_path if logo_path and os.path.exists(logo_path) else None
+        exportar_pdf(rel, graficos, arquivos["pdf"], logo_path=logo)
+
+        # Compacta os gráficos em zip (entregues separadamente)
+        zip_graficos = os.path.join(saida, f"graficos_{base}")
+        shutil.make_archive(zip_graficos, "zip", pasta_graficos)
+        arquivos["zip_graficos"] = zip_graficos + ".zip"
+
+        if gerar_pptx:
+            from apresentacao_malha_viaria import gerar_apresentacao
+            log("🖥️  Gerando apresentação...")
+            arquivos["pptx"] = os.path.join(saida, f"Apresentacao_Malha_Viaria_{base}.pptx")
+            gerar_apresentacao(df, col_map, rel, arquivos["pptx"], logo_path=logo)
+
+        return {"rel": rel, "arquivos": arquivos, "graficos": graficos}
+    finally:
+        # Limpa pastas temporárias (extração de .zip)
+        for tmp in temporarios:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 # ==========================================================================
@@ -1345,6 +1410,8 @@ def main():
                         help="Pasta de saída (padrão: relatorio_saida).")
     parser.add_argument("--logo", default=LOGO_PADRAO,
                         help=f"Caminho da logomarca (padrão: {LOGO_PADRAO}).")
+    parser.add_argument("--pptx", action="store_true",
+                        help="Também gera a apresentação (.pptx).")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -1354,46 +1421,13 @@ def main():
     caminho = descobrir_entrada(args.entrada)
     nome_municipio = args.municipio or input("\n🏙️  Digite o nome do município: ").strip() or "Município"
 
-    print("\n🔄 Lendo dados...")
+    print()
     try:
-        df, temporarios = carregar_dados(caminho)
+        res = executar(caminho, nome_municipio, args.saida,
+                       logo_path=args.logo, gerar_pptx=args.pptx)
     except RuntimeError as e:
         sys.exit(f"\n❌ {e}")
-    print(f"   ✓ {formatar_inteiro_br(len(df))} registros, {len(df.columns)} colunas")
-
-    col_map = validar_colunas(df, COLUNAS_PADRAO)
-    df = preparar_dados(df, col_map)
-
-    print("📐 Calculando quantitativos (em porcentagem)...")
-    rel = gerar_relatorio(df, col_map, nome_municipio)
-
-    # Pastas de saída
-    os.makedirs(args.saida, exist_ok=True)
-    pasta_graficos = os.path.join(args.saida, PASTA_GRAFICOS)
-
-    print("📊 Gerando gráficos individuais...")
-    graficos = gerar_graficos(df, rel, col_map, pasta_graficos)
-    for g in graficos:
-        print(f"   ✓ {g}")
-
-    stamp = datetime.now().strftime("%Y%m%d_%H%M")
-    base = f"{nome_municipio.replace(' ', '_')}_{stamp}"
-    arquivo_excel = os.path.join(args.saida, f"Relatorio_Logradouros_{base}.xlsx")
-    arquivo_pdf = os.path.join(args.saida, f"Relatorio_Completo_{base}.pdf")
-
-    print("📑 Gerando Excel...")
-    exportar_excel(df, rel, col_map, arquivo_excel, graficos)
-    print(f"   ✓ {arquivo_excel}")
-
-    print("📄 Gerando PDF...")
-    logo = args.logo if args.logo and os.path.exists(args.logo) else None
-    exportar_pdf(rel, graficos, arquivo_pdf, logo_path=logo)
-    print(f"   ✓ {arquivo_pdf}")
-
-    # Compacta os gráficos em zip (entregues separadamente)
-    zip_graficos = os.path.join(args.saida, f"graficos_{base}")
-    shutil.make_archive(zip_graficos, "zip", pasta_graficos)
-    print(f"   ✓ {zip_graficos}.zip")
+    rel, arquivos = res["rel"], res["arquivos"]
 
     print("\n" + "=" * 60)
     print("✅ RELATÓRIO CONCLUÍDO!")
@@ -1408,14 +1442,11 @@ def main():
         print(f"   • Vias sem denominação: {formatar_pct(rel['pct_sem_nome_vias'], 1)} das vias "
               f"({formatar_pct(rel.get('pct_sem_nome_ext', 0), 1)} da extensão)")
     print(f"\n📁 Arquivos em: {os.path.abspath(args.saida)}")
-    print(f"   • Excel:    {os.path.basename(arquivo_excel)}")
-    print(f"   • PDF:      {os.path.basename(arquivo_pdf)}")
-    print(f"   • Gráficos: {PASTA_GRAFICOS}/ (e .zip)")
+    for rotulo, chave in [("Excel", "excel"), ("PDF", "pdf"),
+                          ("Gráficos", "zip_graficos"), ("Apresentação", "pptx")]:
+        if chave in arquivos:
+            print(f"   • {rotulo + ':':14}{os.path.basename(arquivos[chave])}")
     print("=" * 60)
-
-    # Limpa pastas temporárias (extração de .zip)
-    for tmp in temporarios:
-        shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

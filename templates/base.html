@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo %}Relatório de Malha Viária{% endblock %} · Eixo</title>
+  <link rel="icon" href="{{ url_for('static', filename='logo.png') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topo">
+    <div class="topo-in">
+      <img src="{{ url_for('static', filename='logo.png') }}" alt="Eixo" class="logo">
+      <span class="topo-titulo">Malha Viária Municipal</span>
+    </div>
+  </header>
+  <main class="conteudo">
+    {% with msgs = get_flashed_messages() %}
+      {% for m in msgs %}<div class="alerta">{{ m }}</div>{% endfor %}
+    {% endwith %}
+    {% block conteudo %}{% endblock %}
+  </main>
+  <footer class="rodape">Eixo Soluções em Gestão Pública · Geoprocessamento</footer>
+</body>
+</html>

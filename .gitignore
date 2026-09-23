@@ -15,3 +15,10 @@ __pycache__/
 venv/
 env/
 .DS_Store
+
+# Dados municipais e arquivos locais
+ULTIMO LOGRADOURO/
+LOGRADOUROS_*/
+Logradouros_*.zip
+*.rar
+.claude/

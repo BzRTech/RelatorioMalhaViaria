@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block titulo %}{{ info.municipio }} · Relatório pronto{% endblock %}
+{% block conteudo %}
+<section class="hero">
+  <p class="chapeu">Relatório pronto · {{ info.data }}</p>
+  <h1>{{ info.municipio }}</h1>
+</section>
+
+<div class="kpis">
+  {% for rotulo, valor in info.resumo %}
+  <div class="kpi"><strong>{{ valor }}</strong><span>{{ rotulo }}</span></div>
+  {% endfor %}
+</div>
+
+{% set rotulos = {
+  'pdf': ('Relatório completo', 'PDF'),
+  'pptx': ('Apresentação', 'PowerPoint'),
+  'excel': ('Tabelas', 'Excel'),
+  'zip_graficos': ('Gráficos', 'PNG em .zip'),
+} %}
+<div class="cartao">
+  <ul class="downloads">
+    {% for chave in ['pdf', 'pptx', 'excel', 'zip_graficos'] if chave in info.arquivos %}
+    <li>
+      <div><strong>{{ rotulos[chave][0] }}</strong><small>{{ rotulos[chave][1] }}</small></div>
+      <a class="botao secundario" href="{{ url_for('baixar', job_id=job_id, nome=info.arquivos[chave]) }}">Baixar</a>
+    </li>
+    {% endfor %}
+  </ul>
+  <a class="botao" href="{{ url_for('baixar', job_id=job_id, nome='tudo.zip') }}">Baixar tudo (.zip)</a>
+  <p class="nota">Os arquivos ficam disponíveis por {{ ttl_horas }} h e depois são apagados do servidor.</p>
+</div>
+
+<p class="voltar"><a href="{{ url_for('index') }}">← Gerar outro relatório</a></p>
+{% endblock %}

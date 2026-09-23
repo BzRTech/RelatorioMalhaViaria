@@ -11,6 +11,37 @@ Gera relatórios da malha viária municipal a partir de um **CSV** ou de um
 > Esta é a versão **local** do antigo notebook do Google Colab. Roda no seu
 > computador, sem precisar de internet e sem o Colab.
 
+## Webapp (Render)
+
+O mesmo relatório roda como site: envia-se o shapefile (`.zip`, ou os arquivos
+`.shp` + `.dbf` + `.shx` juntos) ou o CSV, informa-se o município e baixa-se o
+**PDF**, o **Excel**, os **gráficos** e a **apresentação (.pptx)** — com
+gráficos nativos, editáveis no PowerPoint.
+
+Rodar localmente:
+
+```bash
+pip install -r requirements.txt
+python app.py            # abre em http://localhost:5000
+```
+
+Publicar no Render:
+
+1. Suba este repositório para o GitHub.
+2. No Render: **New → Blueprint** e escolha o repositório (usa o `render.yaml`).
+3. Defina a variável **`APP_PASSWORD`** para proteger o acesso (o navegador
+   pede usuário/senha; o usuário pode ser qualquer um). Sem ela, o site fica aberto.
+
+Os resultados ficam no servidor por 2 h (`JOB_TTL_HORAS`) e depois são apagados.
+No plano free o serviço "dorme" após 15 min sem uso e leva ~1 min para acordar.
+Arquivos `.rar` não funcionam no Render (falta o extrator) — use `.zip`.
+
+Pela linha de comando, a apresentação sai com `--pptx`:
+
+```bash
+python relatorio_malha_viaria.py dados.zip --municipio "Tabira" --pptx
+```
+
 ## Diferença importante: tudo em porcentagem
 
 Todas as tabelas e gráficos que possuem **totais** são apresentados em
