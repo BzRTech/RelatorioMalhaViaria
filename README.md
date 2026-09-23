@@ -101,7 +101,10 @@ como número geral de referência. A data do relatório é exibida apenas como
 ## Novos insights (denominação das vias)
 
 Além das distribuições, o relatório identifica as **vias sem denominação**
-(logradouros cujo nome contém "SEM NOME" ou está em branco) e traz:
+— logradouros cujo nome contém **"PROJETADA"** (ex.: `RUA PROJETADA 0043`) ou
+**"SEM NOME"**, está em branco, ou é só um tipo genérico com número (`TRAVESSA 2`,
+`VIA LOCAL 1`, `RUA A`). Nomes reais com número continuam com denominação
+(`RUA 4 DE OUTUBRO`, `RODOVIA PB 233`). A regra fica em `eh_sem_denominacao()` — e traz:
 
 - **Denominação geral** — por **vias distintas** (% dos logradouros com nome x sem
   nome), pois "ter nome" é propriedade do logradouro inteiro; a extensão (km)

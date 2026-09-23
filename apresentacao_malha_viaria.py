@@ -366,7 +366,8 @@ def slide_denominacao(prs, rel):
     geral = rel["denominacao_geral"]
     s = _slide_vazio(prs)
     _cabecalho(s, "Denominação dos logradouros",
-               "% das vias distintas · considera-se sem denominação a via com 'SEM NOME' ou em branco")
+               "% das vias distintas · sem denominação: 'RUA PROJETADA', 'SEM NOME', nome em branco "
+               "ou só tipo + número (ex.: TRAVESSA 2)")
 
     com, sem = geral.loc["Com denominação"], geral.loc["Sem denominação"]
     if int(sem["Vias (qtd)"]) == 0:
@@ -380,7 +381,7 @@ def slide_denominacao(prs, rel):
         _texto(s, Inches(0.8), Inches(3.35), Inches(8.5), Inches(0.9),
                f"{formatar_inteiro_br(com['Vias (qtd)'])} logradouros  ·  "
                f"{formatar_numero_br(com['Extensão (km)'])} km. Nenhuma via registrada "
-               "como 'SEM NOME' ou com o nome em branco.", 13, CINZA_TEXTO)
+               "como projetada, 'SEM NOME' ou com o nome em branco.", 13, CINZA_TEXTO)
         return
     _grafico_rosca(s, Inches(0.3), Inches(1.0), Inches(4.6), Inches(4.1),
                    ["Com denominação", "Sem denominação"],

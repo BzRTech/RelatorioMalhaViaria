@@ -23,6 +23,7 @@ As colunas usam o padrão abaixo (altere em COLUNAS_PADRAO se necessário):
 """
 
 import os
+import re
 import sys
 import glob
 import shutil
@@ -72,6 +73,30 @@ DPI_GRAFICOS = int(os.environ.get("GRAFICO_DPI", "200"))
 # Texto que identifica uma via SEM DENOMINAÇÃO no campo RUA
 PADRAO_SEM_NOME = "SEM NOME"
 
+# Via SEM DENOMINAÇÃO oficial, identificada pelo nome (comparação sem acento):
+#   - contém "SEM NOME" ou "PROJETADA" (ex.: RUA PROJETADA 0043), ou está vazia;
+#   - ou é só um tipo genérico + número/letra: RUA 12, TRAVESSA 2, VIA LOCAL 3,
+#     VIA DE ACESSO PRINCIPAL 1, RUA A.
+# Nomes reais com número continuam COM denominação: RUA 4 DE OUTUBRO,
+# TRAVESSA SÃO FRANCISCO 2, RODOVIA PB 233, PE-320.
+TERMOS_SEM_DENOMINACAO = ("SEM NOME", "PROJETADA")
+_TIPOS_GENERICOS = r"(RUA|R|TRAVESSA|TV|AVENIDA|AV|VIA|BECO|VIELA|ESTRADA|ACESSO|PRACA|ALAMEDA|VILA)"
+_PALAVRAS_GENERICAS = r"(LOCAL|DE|DO|DA|ACESSO|PRINCIPAL|SECUNDARIA|INTERNA)"
+_RE_NOME_GENERICO = re.compile(
+    rf"^{_TIPOS_GENERICOS}\.?(\s+{_PALAVRAS_GENERICAS})*\s*[-–]?\s*(\d+[A-Z]?|[A-Z])$")
+
+
+def eh_sem_denominacao(nome):
+    """True se o logradouro não tem denominação oficial (ver regras acima)."""
+    if nome is None or (isinstance(nome, float) and pd.isna(nome)):
+        return True
+    chave = _chave_normalizada(nome)
+    if chave in ("", "NAN", "NONE", _chave_normalizada(VAZIO)):
+        return True
+    if any(t in chave for t in TERMOS_SEM_DENOMINACAO):
+        return True
+    return bool(_RE_NOME_GENERICO.match(chave))
+
 # Valores tratados como "vazio" / não informado
 VAZIO = "NÃO INFORMADO"
 
@@ -106,7 +131,9 @@ EXPLICACOES_GRAFICOS = [
      "Cada célula = % da extensão total (km da combinação ÷ km total)."),
     ("fig_07_denominacao.png", "Gráfico 7 - Denominação dos Logradouros",
      "Quantos logradouros (vias) têm nome x estão sem denominação. Considera-se "
-     "'sem denominação' a via cujo nome contém 'SEM NOME' ou está em branco.",
+     "'sem denominação' a via cujo nome contém 'SEM NOME' ou 'PROJETADA', está em "
+     "branco ou é só um tipo genérico com número (ex.: RUA PROJETADA 0043, TRAVESSA 2, "
+     "VIA LOCAL 1).",
      "% das VIAS distintas: cada logradouro conta 1, pois ter nome é propriedade "
      "do logradouro inteiro (não varia ao longo da via). Para referência, por "
      "extensão a fração sem nome é menor - veja o Quadro Resumo."),
@@ -381,15 +408,10 @@ def preparar_dados(df, col_map):
     if comp and comp in df.columns:
         df[comp] = df[comp].apply(converter_para_float)
 
-    # Marca vias sem denominação (texto "SEM NOME" no campo RUA, ou vazio)
+    # Marca vias sem denominação (ver eh_sem_denominacao)
     via = col_map.get("via")
     if via and via in df.columns:
-        nomes = df[via].astype(str).str.upper().str.strip()
-        df["_SEM_NOME"] = (
-            nomes.str.contains(PADRAO_SEM_NOME, na=False)
-            | (nomes == VAZIO.upper())
-            | (nomes == "")
-        )
+        df["_SEM_NOME"] = df[via].map(eh_sem_denominacao)
     return df
 
 
