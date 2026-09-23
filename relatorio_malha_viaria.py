@@ -230,9 +230,10 @@ def ler_shapefile(caminho):
                     campos = [f[0] for f in r.fields[1:]]
                     dados = [list(rec) for rec in r.records()]
             else:
-                r = shapefile.Reader(caminho, encoding=enc, encodingErrors="strict")
-                campos = [f[0] for f in r.fields[1:]]  # ignora DeletionFlag
-                dados = [list(rec) for rec in r.records()]
+                # "with" fecha os arquivos (senão a pasta temporária não é apagada)
+                with shapefile.Reader(caminho, encoding=enc, encodingErrors="strict") as r:
+                    campos = [f[0] for f in r.fields[1:]]  # ignora DeletionFlag
+                    dados = [list(rec) for rec in r.records()]
             return pd.DataFrame(dados, columns=campos)
         except UnicodeDecodeError as e:
             erro = e  # encoding errado: tenta o próximo
@@ -619,8 +620,9 @@ def gerar_relatorio(df, col_map, nome_municipio):
         if r_sem is not None and not r_sem.empty:
             rel["ranking_bairro_sem_nome"] = r_sem
 
+        # Só faz sentido quando há algum trecho sem nome (senão é tudo 0%)
         sn_pav = sem_nome_por_categoria(df, col_map, "pavimentacao")
-        if sn_pav is not None and not sn_pav.empty:
+        if sn_pav is not None and sn_pav["Trechos sem denominação"].sum() > 0:
             rel["sem_nome_por_pavimentacao"] = sn_pav
 
     return rel
@@ -953,7 +955,9 @@ def gerar_graficos(df, rel, col_map, pasta_graficos):
         gerados.append(f)
 
     # ----- Gráficos dos novos insights (denominação) -----
-    if "denominacao_geral" in rel:
+    # Pizza 100% x 0% não informa nada: quando todas as vias têm nome, a
+    # tabela de denominação (Excel/PDF) já diz isso.
+    if "denominacao_geral" in rel and rel.get("pct_sem_nome_vias", 0) > 0:
         f = grafico_denominacao(rel["denominacao_geral"],
                                 "fig_07_denominacao.png", pasta_graficos)
         if f:

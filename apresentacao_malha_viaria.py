@@ -369,6 +369,19 @@ def slide_denominacao(prs, rel):
                "% das vias distintas · considera-se sem denominação a via com 'SEM NOME' ou em branco")
 
     com, sem = geral.loc["Com denominação"], geral.loc["Sem denominação"]
+    if int(sem["Vias (qtd)"]) == 0:
+        # Rosca de 100% x 0% não diz nada: mostra o resultado em destaque
+        _retangulo(s, Inches(0.4), Inches(1.3), Inches(9.2), Inches(3.4), CINZA_CLARO)
+        _retangulo(s, Inches(0.4), Inches(1.3), Inches(0.12), Inches(3.4), AMARELO)
+        _texto(s, Inches(0.8), Inches(1.6), Inches(8.5), Inches(1.1),
+               "100%", 60, GRAFITE_MEDIO, True)
+        _texto(s, Inches(0.8), Inches(2.75), Inches(8.5), Inches(0.5),
+               "dos logradouros possuem denominação", 20, GRAFITE_MEDIO, True)
+        _texto(s, Inches(0.8), Inches(3.35), Inches(8.5), Inches(0.9),
+               f"{formatar_inteiro_br(com['Vias (qtd)'])} logradouros  ·  "
+               f"{formatar_numero_br(com['Extensão (km)'])} km. Nenhuma via registrada "
+               "como 'SEM NOME' ou com o nome em branco.", 13, CINZA_TEXTO)
+        return
     _grafico_rosca(s, Inches(0.3), Inches(1.0), Inches(4.6), Inches(4.1),
                    ["Com denominação", "Sem denominação"],
                    [float(com["% das Vias"]), float(sem["% das Vias"])],
