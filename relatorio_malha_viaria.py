@@ -27,6 +27,7 @@ import sys
 import glob
 import shutil
 import argparse
+import gc
 import warnings
 from datetime import datetime
 
@@ -60,11 +61,13 @@ COLUNAS_PADRAO = {
 CORES_PRINCIPAIS = [
     "#FFD700", "#FFC107", "#FFEB3B", "#FFF59D",
     "#2C2C2C", "#424242", "#616161", "#9E9E9E",
-    "#FFB300", "#FF8F00", "#F5F5F5", "#BDBDBD",
+    "#FFB300", "#FF8F00", "#8D6E63", "#BDBDBD",
 ]
 
 LOGO_PADRAO = "logomarca-eixo-cores-2.png"
 PASTA_GRAFICOS = "graficos"  # subpasta dentro da pasta de saída
+# 200 dpi = qualidade de impressão e cabe na RAM do plano free do Render
+DPI_GRAFICOS = int(os.environ.get("GRAFICO_DPI", "200"))
 
 # Texto que identifica uma via SEM DENOMINAÇÃO no campo RUA
 PADRAO_SEM_NOME = "SEM NOME"
@@ -706,7 +709,7 @@ def _salvar_grafico(fig, nome_arquivo, pasta):
     else:
         fig.tight_layout()
     destino = os.path.join(pasta, nome_arquivo)
-    fig.savefig(destino, dpi=300, bbox_inches="tight", facecolor="white")
+    fig.savefig(destino, dpi=DPI_GRAFICOS, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     return destino
 
@@ -1266,16 +1269,23 @@ def exportar_pdf(rel, graficos, caminho, logo_path=None):
             t["% sem denominação"] = t["% sem denominação"].apply(lambda v: formatar_pct(v, 2))
             _pagina_tabela(pdf, "SEM DENOMINAÇÃO POR PAVIMENTAÇÃO", t.reset_index(), municipio)
 
-        # Gráficos (apenas PNG)
+        # Gráficos (apenas PNG). Reduz para a resolução da página (~150 dpi) e
+        # usa 8 bits: plt.imread do PNG de 300 dpi vira float32 (~150 MB por
+        # gráfico) e o PdfPages segura tudo até fechar -> estoura a RAM do servidor.
+        from PIL import Image
         for img_file in sorted(g for g in graficos if g.lower().endswith(".png")):
             try:
-                img = plt.imread(img_file)
+                with Image.open(img_file) as im:
+                    im = im.convert("RGB")
+                    im.thumbnail((1600, 1600))
+                    img = np.asarray(im)
                 fig = plt.figure(figsize=(11, 8.5))
                 ax = fig.add_subplot(111)
-                ax.imshow(img)
+                ax.imshow(img, interpolation="none")
                 ax.axis("off")
                 pdf.savefig(fig, bbox_inches="tight")
-                plt.close()
+                plt.close(fig)
+                del img
             except Exception as e:  # noqa: BLE001
                 print(f"   (gráfico não incluído no PDF: {img_file}: {e})")
 
@@ -1371,9 +1381,11 @@ def executar(caminho, nome_municipio, saida, logo_path=None,
             "pdf": os.path.join(saida, f"Relatorio_Completo_{base}.pdf"),
         }
 
+        gc.collect()
         log("📑 Gerando Excel...")
         exportar_excel(df, rel, col_map, arquivos["excel"], graficos)
 
+        gc.collect()
         log("📄 Gerando PDF...")
         logo = logo_path if logo_path and os.path.exists(logo_path) else None
         exportar_pdf(rel, graficos, arquivos["pdf"], logo_path=logo)

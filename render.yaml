@@ -5,7 +5,7 @@ services:
     plan: free
     buildCommand: pip install -r requirements.txt
     # 1 worker: o matplotlib não é thread-safe e o plano free tem 512 MB de RAM
-    startCommand: gunicorn app:app --workers 1 --threads 4 --timeout 300 --bind 0.0.0.0:$PORT
+    startCommand: gunicorn app:app --workers 1 --threads 4 --timeout 320 --bind 0.0.0.0:$PORT
     healthCheckPath: /saude
     envVars:
       - key: PYTHON_VERSION

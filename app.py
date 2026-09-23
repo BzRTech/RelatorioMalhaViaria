@@ -16,6 +16,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -27,8 +28,9 @@ from flask import (Flask, Response, abort, flash, redirect, render_template,
                    request, send_from_directory, url_for)
 from werkzeug.utils import secure_filename
 
-from relatorio_malha_viaria import (LOGO_PADRAO, executar, formatar_inteiro_br,
-                                    formatar_numero_br, formatar_pct)
+from tarefa import ProcessoInterrompido, gerar_isolado
+
+LOGO_PADRAO = "logomarca-eixo-cores-2.png"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 JOBS_DIR = os.environ.get("JOBS_DIR") or os.path.join(tempfile.gettempdir(), "malha_viaria_jobs")
@@ -42,7 +44,8 @@ app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 80 * 1024 * 1024  # 80 MB
 app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(24)
 
-# matplotlib (pyplot) não é thread-safe: um relatório por vez
+# Um relatório por vez: cada um roda num processo próprio de ~400 MB e o
+# plano free do Render tem 512 MB
 _trava = threading.Lock()
 
 
@@ -96,17 +99,6 @@ def _definir_entrada(pasta_entrada, nomes):
     return pasta_entrada
 
 
-def _resumo(rel):
-    itens = [("Trechos", formatar_inteiro_br(rel.get("total_trechos", rel["total_registros"])))]
-    if rel.get("total_vias"):
-        itens.append(("Logradouros", formatar_inteiro_br(rel["total_vias"])))
-    if "total_km" in rel:
-        itens.append(("Extensão", f"{formatar_numero_br(rel['total_km'], 2)} km"))
-    if "pct_sem_nome_vias" in rel:
-        itens.append(("Sem denominação", formatar_pct(rel["pct_sem_nome_vias"], 1)))
-    return itens
-
-
 # --------------------------------------------------------------------------
 # Rotas
 # --------------------------------------------------------------------------
@@ -156,12 +148,19 @@ def gerar():
             arq_logo.save(logo)
 
         with _trava:
-            res = executar(entrada, municipio, pasta_saida, logo_path=logo,
-                           gerar_pptx=True, log=app.logger.info)
+            res = gerar_isolado(entrada, municipio, pasta_saida, logo_path=logo)
     except Exception as e:  # noqa: BLE001 - mostra o erro ao usuário
         app.logger.exception("Falha ao gerar relatório")
         shutil.rmtree(raiz, ignore_errors=True)
-        flash(f"Não foi possível gerar o relatório: {e}")
+        if isinstance(e, ProcessoInterrompido):
+            msg = ("o processamento foi interrompido pelo servidor (provavelmente falta "
+                   "de memória). Tente de novo; se persistir, o arquivo é grande demais "
+                   "para o plano atual.")
+        elif isinstance(e, subprocess.TimeoutExpired):
+            msg = "o processamento demorou demais e foi cancelado."
+        else:
+            msg = str(e)
+        flash(f"Não foi possível gerar o relatório: {msg}")
         return redirect(url_for("index"))
     finally:
         shutil.rmtree(pasta_entrada, ignore_errors=True)
@@ -171,7 +170,7 @@ def gerar():
         for arq in res["arquivos"].values():
             z.write(arq, os.path.basename(arq))
 
-    info = {"municipio": municipio, "data": res["rel"]["data"], "resumo": _resumo(res["rel"]),
+    info = {"municipio": municipio, "data": res["data"], "resumo": res["resumo"],
             "arquivos": {k: os.path.basename(v) for k, v in res["arquivos"].items()}}
     with open(os.path.join(pasta_saida, "info.json"), "w", encoding="utf-8") as fh:
         json.dump(info, fh, ensure_ascii=False)
